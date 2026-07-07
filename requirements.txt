@@ -1,4 +1,8 @@
-monai
+monai[all]
+torch
+tensorboard
+matplotlib
+tqdm
 simpleitk
 pydicom
 scikit-image
