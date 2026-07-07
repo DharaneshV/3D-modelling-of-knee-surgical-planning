@@ -149,20 +149,23 @@ def resample_label_to_isotropic(
 # ---------------------------------------------------------------------------
 
 MAX_SLICE_SPACING_MM = 1.5  # From the implementation plan
+MAX_CT_HU_METAL = 5000     # Above this = probable metal streak artifact
 
 
-def qa_check(image: sitk.Image, filepath: str = "") -> dict:
+def qa_check(image: sitk.Image, filepath: str = "", is_ct: bool = False) -> dict:
     """
     Run quality-assurance checks on a volume.
 
-    Checks performed (after N4 correction, as the plan recommends):
+    Checks performed (after N4 correction for MRI, as the plan recommends):
       - Slice spacing > MAX_SLICE_SPACING_MM
       - Intensity range sanity (detects blank or saturated volumes)
       - NaN / Inf detection
+      - CT only: max HU > MAX_CT_HU_METAL (probable metal streak artifact)
 
     Args:
-        image: The (bias-corrected) volume to check.
+        image: The (bias-corrected for MRI) volume to check.
         filepath: Optional path string for logging context.
+        is_ct: If True, run CT-specific checks (metal artifact detection).
 
     Returns:
         dict with keys:
@@ -173,7 +176,6 @@ def qa_check(image: sitk.Image, filepath: str = "") -> dict:
     spacing = image.GetSpacing()
 
     # --- Slice spacing check ---
-    # In a 3D volume the third spacing dimension is the slice spacing
     if image.GetDimension() >= 3:
         slice_spacing = spacing[2]
         if slice_spacing > MAX_SLICE_SPACING_MM:
@@ -195,6 +197,14 @@ def qa_check(image: sitk.Image, filepath: str = "") -> dict:
 
     if img_std < 1e-6:
         flags.append("Near-zero standard deviation — possible corrupt volume")
+
+    # --- CT-specific: metal streak artifact detection ---
+    if is_ct and img_max > MAX_CT_HU_METAL:
+        flags.append(
+            f"Max HU {img_max:.0f} exceeds {MAX_CT_HU_METAL} — "
+            f"probable metal streak artifact (post-op implant?). "
+            f"HU thresholding results will be unreliable."
+        )
 
     # --- NaN / Inf check ---
     arr = sitk.GetArrayFromImage(image)
@@ -221,22 +231,31 @@ def preprocess_mri(
     output_dir: str = "data/preprocessed",
     target_spacing: float = 0.5,
     skip_n4: bool = False,
+    is_ct: bool = False,
 ) -> dict:
     """
-    Run the full Week 1 preprocessing pipeline on a single MRI case.
+    Run the full preprocessing pipeline on a single volume.
 
-    Pipeline order (from the implementation plan):
-      1. Load NIfTI / DICOM
-      2. N4 Bias Field Correction
+    Two modality tracks (from the revised implementation plan):
+
+    **MRI (Track A — OAI-ZIB):**
+      1. Load NIfTI
+      2. N4 Bias Field Correction  ← MRI only; corrects RF coil sensitivity
       3. Resample to isotropic spacing
-      4. QA gating (post-correction, as the plan specifies)
+      4. QA gating (post-correction)
+
+    **CT (Track B — TotalSegmentator):**
+      1. Load NIfTI / DICOM
+      2. Resample to isotropic spacing  ← no N4; CT has no RF bias field
+      3. QA gating with metal artifact check (max HU > 5000)
 
     Args:
         image_path: Path to the input image (.nii.gz or DICOM directory).
         label_path: Optional path to the corresponding label mask.
         output_dir: Directory to write preprocessed outputs.
         target_spacing: Isotropic spacing in mm.
-        skip_n4: If True, skip bias field correction (e.g. for CT volumes).
+        skip_n4: If True, skip N4 bias field correction. Auto-set True when is_ct=True.
+        is_ct: If True, apply CT-specific QA (metal artifact detection). Also implies skip_n4.
 
     Returns:
         dict with keys: image_out, label_out (paths), qa_result.
@@ -244,9 +263,12 @@ def preprocess_mri(
     os.makedirs(output_dir, exist_ok=True)
     basename = os.path.splitext(os.path.splitext(os.path.basename(image_path))[0])[0]
 
+    # CT implies no N4
+    if is_ct:
+        skip_n4 = True
+
     # --- Load ---
     if os.path.isdir(image_path):
-        # DICOM directory
         reader = sitk.ImageSeriesReader()
         dicom_names = reader.GetGDCMSeriesFileNames(image_path)
         reader.SetFileNames(dicom_names)
@@ -256,17 +278,18 @@ def preprocess_mri(
         image = sitk.ReadImage(image_path)
         logger.info(f"Loaded {image_path}")
 
-    # --- N4 Correction ---
+    # --- N4 Correction (MRI only) ---
     if not skip_n4:
         image = n4_bias_field_correction(image)
     else:
-        logger.info("Skipping N4 (CT or skip_n4=True)")
+        modality = "CT" if is_ct else "skip_n4=True"
+        logger.info(f"Skipping N4 ({modality})")
 
     # --- Resample ---
     image = resample_to_isotropic(image, target_spacing=target_spacing)
 
-    # --- QA (post-correction as the plan recommends) ---
-    qa_result = qa_check(image, filepath=image_path)
+    # --- QA (post-correction; CT includes metal artifact check) ---
+    qa_result = qa_check(image, filepath=image_path, is_ct=is_ct)
 
     # --- Save ---
     image_out = os.path.join(output_dir, f"{basename}_preprocessed.nii.gz")

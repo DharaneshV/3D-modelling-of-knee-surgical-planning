@@ -11,7 +11,9 @@ This plan takes the baseline pipeline from the dev spec (threshold segmentation 
 |---|---|---|
 | Language | Python-only | MATLAB parallel path adds no accuracy benefit; skip unless a sponsor explicitly needs MathWorks credit |
 | Core framework | **MONAI** (PyTorch) instead of raw U-Net scripts | MONAI Core ships NIfTI/DICOM-native transforms, pre-built Swin UNETR, and class-imbalance loss functions out of the box — saves you writing preprocessing boilerplate |
-| Datasets | OAI-ZIB (bone+cartilage masks) for training/validation, SKI10 as a secondary sanity-check set | Both are the field's standard benchmark sets with expert annotations already provided — avoids the "manually trace gold standard" fallback in Section 6 for most cases |
+| MRI Dataset | **OAI-ZIB** (3D DESS MRI, expert bone+cartilage masks) | Standard benchmark set with expert annotations — avoids manual tracing for Track A |
+| CT Dataset | **TotalSegmentator** (CC-BY whole-body CT + bone masks) | Ships femur/tibia ground-truth masks for free; crop to knee region. Skip TCIA — cancer-focused, thin knee OA presence |
+| CT–MRI registration scoping | **Option (b): independent tracks** — CT (bone) and MRI (soft tissue) validated independently; Week 5 registration is a capability demo on matched cases if found, not a full-population requirement | Honest scoping for a 9-week timeline; avoids silently faking alignment between different patient anatomies |
 | Repo structure | Use the spec's structure as-is | It's already sound; add a `src/preprocessing/` folder (see Week 1) |
 
 Set up:
@@ -25,14 +27,28 @@ pip install monai simpleitk pydicom scikit-image pyvista vtk pandas
 
 **Spec deliverable:** 5–8 validated DICOM cases, 1–2 held out.
 
-**Build:**
-1. Pull cases from OAI/TCIA as specified.
-2. Add a `src/preprocessing/` module doing what the spec's "data validation" box implies but doesn't detail:
-   - **N4 Bias Field Correction** on all MRI volumes (`sitk.N4BiasFieldCorrectionImageFilter`), using an Otsu-threshold mask to exclude background air before fitting the B-spline field. Skipping this is the single most common reason CNN segmentation quality degrades on clinical (non-DESS) MRI.
-   - **Resampling to isotropic spacing** — B-spline/trilinear interpolation for image volumes, nearest-neighbor for any label masks. Do this before anything touches the network; it's what the spec's "slice spacing check" is really protecting against.
-3. QA gate: flag/discard slice spacing > 1.5mm or visible motion artifact, as the spec says — do this **after** N4 correction, since correction sometimes reveals artifacts that were masked by intensity variation.
+> **Revised:** Two separate data tracks — preprocessing differs by modality.
 
-**Why it matters:** the research report specifically flags this domain-shift problem — models trained on clean 3D DESS data fail on the anisotropic 2D FSE scans common in real clinical exports. Doing bias correction and resampling now prevents a confusing accuracy drop in Week 4 that looks like a segmentation bug but is actually a preprocessing gap.
+### Track A — MRI (Soft Tissue) → OAI-ZIB
+1. Pull cases from OAI-ZIB via HuggingFace (`YongchengYAO/OAIZIB-CM`) — already done.
+2. Preprocessing:
+   - **N4 Bias Field Correction** (MRI-only — corrects RF coil sensitivity variation, does not apply to CT).
+   - **Resampling to isotropic spacing** (B-spline for images, nearest-neighbor for masks).
+3. QA gate: flag slice spacing > 1.5mm or motion artifact — run **after** N4, since correction sometimes reveals hidden artifacts.
+
+### Track B — CT (Bone) → TotalSegmentator
+1. Pull 5–8 whole-body CT scans from the **TotalSegmentator** dataset (CC-BY licensed, ships with femur/tibia bone masks).
+2. **Crop to knee region** — TotalSegmentator volumes are whole-body; extract the knee bounding box using the femur/tibia label extent.
+3. Check patella label coverage — TotalSegmentator's label list has expanded across versions; if patella is absent, manually trace on the handful of cropped cases only.
+4. Preprocessing:
+   - **Resampling to isotropic spacing only** — no N4 (CT has no RF bias field).
+   - **Metal streak artifact check** — flag any post-op cases with implants; they corrupt HU thresholding.
+5. QA gate: same slice-spacing check; additionally flag any case where max HU > 5000 (probable metal artifact).
+
+### Patient-Mismatch Decision (flag now, not at Week 5)
+CT bone cases and MRI soft-tissue cases are from **different patients**. The Week 5 CT–MRI registration step assumes same-patient data. Resolution: **Option (b)** — validate tracks independently through Weeks 2–4; treat Week 5 registration as a capability demo on any matched cases found. Document explicitly in deliverables that full same-patient multi-modal validation is future work.
+
+**Why it matters:** the research report specifically flags the domain-shift problem — models trained on clean 3D DESS data fail on anisotropic FSE scans. Preprocessing differences between modalities must be applied correctly per-track from day one.
 
 ---
 
@@ -40,7 +56,11 @@ pip install monai simpleitk pydicom scikit-image pyvista vtk pandas
 
 **Spec deliverable:** threshold-based femur/tibia/patella masks.
 
-**Build exactly as specified** — Hounsfield-unit thresholding is correct here and is the right "get this working first" call. Bone-CT contrast is high enough that deep learning is unnecessary overhead for the POC.
+**Build exactly as specified** — Hounsfield-unit thresholding is correct here. Bone-CT contrast is high enough that deep learning is unnecessary overhead for the POC.
+
+**Data source update:** Run against **TotalSegmentator-derived CT cases** (cropped to knee region), not OAI-ZIB.
+
+**New: visual sanity pass first.** TotalSegmentator uses whole-body CT protocols which vary more in slice thickness and reconstruction kernel than a dedicated knee-protocol CT. Do a quick visual check on your 5–8 cropped cases to confirm HU values behave consistently before locking in threshold values — don't assume the standard [200, 3000] range is optimal across all cases without verifying.
 
 **One addition:** run your Dice/Hausdorff metrics (Week 4 code) on this bone output as soon as it exists, even informally — don't wait for the formal Week 4 milestone to discover threshold values need tuning per-scanner.
 
