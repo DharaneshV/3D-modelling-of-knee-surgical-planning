@@ -1,31 +1,47 @@
 """
-Download and crop TotalSegmentator CT cases for the bone segmentation track.
+Download and prepare CT data for the bone segmentation track (Track B).
 
-TotalSegmentator (CC-BY licensed) ships whole-body CT volumes with pre-existing
-bone segmentation masks. We pull 5-8 cases, identify the knee region from the
-femur/tibia label extent, and crop both image and mask to that ROI.
+STRATEGY (revised):
+  The TotalSegmentator Zenodo dataset is a monolithic 23 GB archive — impractical
+  to download for a POC. Instead, we use two approaches:
+
+  Option A (recommended): Install the `totalsegmentator` pip package and run it
+    on any publicly available knee CT DICOM to generate bone masks automatically.
+    TotalSegmentator will segment femur, tibia, patella from any CT.
+
+  Option B: Download a small public knee CT from the TCIA Knee Phantom collection
+    or similar small, open-access CT dataset, then run TotalSegmentator on it.
+
+  This script:
+    1. Installs totalsegmentator if not present.
+    2. Downloads 5-8 small public CT cases (TCIA knee phantom / other CC-licensed source).
+    3. Runs TotalSegmentator inference on each to produce bone masks.
+    4. Crops each volume to the knee bounding box using the resulting labels.
 
 Usage:
-    python scripts/download_totalsegmentator.py
-    python scripts/download_totalsegmentator.py --n_cases 5 --output_dir data/ct_knee
+    python scripts/download_totalsegmentator.py --input_dir data/ct_dicom --output_dir data/ct_knee
+    python scripts/download_totalsegmentator.py --single path/to/ct.nii.gz
 """
 
 import os
 import argparse
 import logging
+import subprocess
+import sys
+import glob
 import numpy as np
 import SimpleITK as sitk
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# TotalSegmentator label values for knee-relevant bones
-# (These are the standard TotalSegmentator v2 label indices)
+
+# TotalSegmentator output label values for knee bones (v2)
 LABEL_FEMUR_LEFT = 7
 LABEL_FEMUR_RIGHT = 8
 LABEL_TIBIA_LEFT = 85
 LABEL_TIBIA_RIGHT = 86
-LABEL_PATELLA_LEFT = 93   # Added in later TotalSegmentator versions — may be absent
+LABEL_PATELLA_LEFT = 93
 LABEL_PATELLA_RIGHT = 94
 
 KNEE_LABELS = [
@@ -34,7 +50,6 @@ KNEE_LABELS = [
     LABEL_PATELLA_LEFT, LABEL_PATELLA_RIGHT,
 ]
 
-# Remap to standard pipeline labels: femur=1, tibia=2, patella=3
 LABEL_REMAP = {
     LABEL_FEMUR_LEFT: 1,
     LABEL_FEMUR_RIGHT: 1,
@@ -44,126 +59,109 @@ LABEL_REMAP = {
     LABEL_PATELLA_RIGHT: 3,
 }
 
-# Padding around the knee bounding box in mm
 CROP_PADDING_MM = 30.0
 
 
-def download_totalsegmentator_dataset(n_cases: int = 8, output_dir: str = "data/totalseg_raw"):
-    """
-    Download whole-body CT cases from the TotalSegmentator dataset via HuggingFace.
+# ---------------------------------------------------------------------------
+# 1. Install TotalSegmentator
+# ---------------------------------------------------------------------------
 
-    Dataset: Wasserthal et al., 'TotalSegmentator: Robust segmentation of 104 anatomic
-    structures in CT images.' Radiology: AI, 2023. CC-BY 4.0 license.
-    HF repo: https://huggingface.co/datasets/wasserth/TotalSegmentator_dataset
-    """
+def ensure_totalsegmentator():
+    """Install TotalSegmentator if not already installed."""
     try:
-        from huggingface_hub import snapshot_download
+        import totalsegmentator
+        logger.info("totalsegmentator already installed.")
+        return True
     except ImportError:
-        logger.error("huggingface-hub not installed. Run: pip install huggingface-hub")
-        return
-
-    os.makedirs(output_dir, exist_ok=True)
-    logger.info(f"Downloading TotalSegmentator dataset to {output_dir} ({n_cases} cases)...")
-
-    try:
-        snapshot_download(
-            repo_id="wasserth/TotalSegmentator_dataset",
-            repo_type="dataset",
-            local_dir=output_dir,
-            max_workers=4,
+        logger.info("Installing totalsegmentator...")
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "totalsegmentator"],
+            capture_output=True, text=True
         )
-        logger.info("TotalSegmentator download complete.")
-    except Exception as e:
-        logger.error(f"HuggingFace download failed: {e}")
-        logger.info("Trying fallback: direct Zenodo download via requests...")
-        _download_zenodo_fallback(n_cases, output_dir)
+        if result.returncode == 0:
+            logger.info("totalsegmentator installed successfully.")
+            return True
+        else:
+            logger.error(f"Installation failed:\n{result.stderr}")
+            return False
 
 
-def _download_zenodo_fallback(n_cases: int, output_dir: str):
+# ---------------------------------------------------------------------------
+# 2. Run TotalSegmentator inference on a CT volume
+# ---------------------------------------------------------------------------
+
+def run_totalsegmentator(
+    input_path: str,
+    output_dir: str,
+    task: str = "total",
+    multilabel: bool = True,
+) -> str:
     """
-    Fallback: download individual TotalSegmentator cases from Zenodo.
-    TotalSegmentator v2 dataset is available at Zenodo DOI: 10.5281/zenodo.6802613
-    """
-    try:
-        import requests
-    except ImportError:
-        logger.error("requests not installed.")
-        return
-
-    # Zenodo API to list files for this record
-    zenodo_record_id = "6802613"
-    api_url = f"https://zenodo.org/api/records/{zenodo_record_id}"
-    logger.info(f"Querying Zenodo record {zenodo_record_id}...")
-
-    try:
-        resp = requests.get(api_url, timeout=30)
-        resp.raise_for_status()
-        record = resp.json()
-        files = record.get("files", [])
-
-        # Filter to .zip or .tar files that look like individual cases
-        case_files = [f for f in files if f["key"].endswith(".zip")][:n_cases]
-
-        for f in case_files:
-            url = f["links"]["self"]
-            fname = f["key"]
-            dest = os.path.join(output_dir, fname)
-            if os.path.exists(dest):
-                logger.info(f"Already exists: {fname}")
-                continue
-            logger.info(f"Downloading {fname} from Zenodo...")
-            with requests.get(url, stream=True, timeout=120) as r:
-                r.raise_for_status()
-                with open(dest, "wb") as fout:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        fout.write(chunk)
-            logger.info(f"Downloaded {fname}")
-    except Exception as e:
-        logger.error(f"Zenodo fallback failed: {e}")
-        logger.info(
-            "Manual download option: Visit https://zenodo.org/record/6802613 "
-            "and download 5-8 case archives into data/totalseg_raw/"
-        )
-
-
-def get_knee_bounding_box(
-    label_volume: sitk.Image,
-    padding_mm: float = CROP_PADDING_MM,
-) -> tuple:
-    """
-    Compute a bounding box around the knee region using the femur/tibia label extent.
+    Run TotalSegmentator on a CT volume to generate bone segmentation masks.
 
     Args:
-        label_volume: TotalSegmentator multi-label mask (sitk.Image).
-        padding_mm: Padding around the bounding box in mm (default 30 mm).
+        input_path: Path to CT volume (.nii.gz or DICOM directory).
+        output_dir: Directory to write segmentation output.
+        task: TotalSegmentator task (default 'total' for all 104 structures).
+        multilabel: If True, output a single multi-label NIfTI (easier to use).
 
     Returns:
-        Tuple of (lower_index, upper_index) as lists — ready for sitk.RegionOfInterest.
-        Returns (None, None) if no knee labels are found in the volume.
+        Path to the output segmentation file.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "segmentation.nii.gz")
+
+    cmd = [
+        sys.executable, "-m", "totalsegmentator",
+        "-i", input_path,
+        "-o", output_path,
+        "--task", task,
+    ]
+    if multilabel:
+        cmd.append("--ml")
+
+    logger.info(f"Running TotalSegmentator on {input_path}...")
+    logger.info(f"Command: {' '.join(cmd)}")
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.error(f"TotalSegmentator failed:\n{result.stderr}")
+        return None
+
+    logger.info(f"TotalSegmentator output: {output_path}")
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# 3. Knee bounding box crop
+# ---------------------------------------------------------------------------
+
+def get_knee_bounding_box(label_volume: sitk.Image, padding_mm: float = CROP_PADDING_MM):
+    """
+    Compute a bounding box around the knee region from the femur/tibia label extent.
+
+    Returns (lower, size) tuples in SimpleITK [X, Y, Z] order,
+    or (None, None) if no knee labels are found.
     """
     label_arr = sitk.GetArrayFromImage(label_volume)  # [Z, Y, X]
-    spacing = label_volume.GetSpacing()  # [X, Y, Z] spacing
+    spacing = label_volume.GetSpacing()               # [X, Y, Z]
 
-    # Mask for knee-relevant labels
     knee_mask = np.zeros_like(label_arr, dtype=bool)
     for lbl in KNEE_LABELS:
         knee_mask |= (label_arr == lbl)
 
     if not knee_mask.any():
-        logger.warning("No knee labels found in volume (femur/tibia/patella missing).")
+        logger.warning("No knee labels found in volume.")
         return None, None
 
-    # Get bounding box in voxel indices (Z, Y, X)
     coords = np.argwhere(knee_mask)
     z_min, y_min, x_min = coords.min(axis=0)
     z_max, y_max, x_max = coords.max(axis=0)
 
-    # Convert padding from mm to voxels
     pad_x = int(padding_mm / spacing[0])
     pad_y = int(padding_mm / spacing[1])
     pad_z = int(padding_mm / spacing[2])
 
-    # Apply padding, clamp to volume bounds
     shape = label_arr.shape  # [Z, Y, X]
     z_min = max(0, z_min - pad_z)
     z_max = min(shape[0] - 1, z_max + pad_z)
@@ -172,40 +170,27 @@ def get_knee_bounding_box(
     x_min = max(0, x_min - pad_x)
     x_max = min(shape[2] - 1, x_max + pad_x)
 
-    # SimpleITK uses [X, Y, Z] order
     lower = [int(x_min), int(y_min), int(z_min)]
     size = [int(x_max - x_min + 1), int(y_max - y_min + 1), int(z_max - z_min + 1)]
-
-    logger.info(
-        f"Knee bounding box: lower={lower}, size={size} voxels "
-        f"({[s * sp:.1f for s, sp in zip(size, spacing)]} mm)"
-    )
+    size_mm = [round(s * sp, 1) for s, sp in zip(size, spacing)]
+    logger.info(f"Knee bounding box: lower={lower}, size={size} voxels ({size_mm} mm)")
     return lower, size
 
 
-def remap_labels(label_volume: sitk.Image) -> tuple:
+def remap_labels(label_volume: sitk.Image):
     """
-    Remap TotalSegmentator label indices to pipeline-standard labels:
-      femur=1, tibia=2, patella=3
-
-    Also returns a boolean indicating whether patella labels were found
-    (so the caller can warn about the manual-tracing requirement).
-
-    Args:
-        label_volume: TotalSegmentator multi-label mask.
-
-    Returns:
-        (remapped_mask: sitk.Image, patella_found: bool)
+    Remap TotalSegmentator labels to pipeline standard: femur=1, tibia=2, patella=3.
+    Returns (remapped_image, patella_found).
     """
     arr = sitk.GetArrayFromImage(label_volume)
     out = np.zeros_like(arr, dtype=np.uint8)
-
     patella_found = False
-    for src_label, dst_label in LABEL_REMAP.items():
-        voxels = (arr == src_label)
-        if voxels.any():
-            out[voxels] = dst_label
-            if dst_label == 3:
+
+    for src, dst in LABEL_REMAP.items():
+        mask = arr == src
+        if mask.any():
+            out[mask] = dst
+            if dst == 3:
                 patella_found = True
 
     remapped = sitk.GetImageFromArray(out)
@@ -213,53 +198,37 @@ def remap_labels(label_volume: sitk.Image) -> tuple:
     return remapped, patella_found
 
 
-def crop_to_knee(
+def crop_and_save(
     image: sitk.Image,
     label: sitk.Image,
     case_id: str,
     output_dir: str,
-    padding_mm: float = CROP_PADDING_MM,
-):
-    """
-    Crop a whole-body CT image and label to the knee region.
-
-    Args:
-        image: Whole-body CT volume.
-        label: TotalSegmentator whole-body label mask.
-        case_id: Identifier for logging/saving.
-        output_dir: Directory to save cropped outputs.
-        padding_mm: Padding around knee bounding box in mm.
-
-    Returns:
-        dict with image_path, label_path, patella_found.
-    """
+) -> dict:
+    """Crop image + label to knee region, remap labels, and save."""
     os.makedirs(output_dir, exist_ok=True)
 
-    # Get bounding box
-    lower, size = get_knee_bounding_box(label, padding_mm=padding_mm)
+    lower, size = get_knee_bounding_box(label)
     if lower is None:
-        logger.warning(f"{case_id}: Skipping — no knee labels found.")
+        logger.warning(f"{case_id}: No knee labels found — skipping crop.")
         return None
 
-    # Crop image
     cropped_image = sitk.RegionOfInterest(image, size=size, index=lower)
 
-    # Remap and crop label
     remapped_label, patella_found = remap_labels(label)
     cropped_label = sitk.RegionOfInterest(remapped_label, size=size, index=lower)
 
-    # Save
     image_out = os.path.join(output_dir, f"{case_id}_ct_knee.nii.gz")
     label_out = os.path.join(output_dir, f"{case_id}_label_knee.nii.gz")
     sitk.WriteImage(cropped_image, image_out)
     sitk.WriteImage(cropped_label, label_out)
-    logger.info(f"Saved cropped CT:    {image_out}")
-    logger.info(f"Saved cropped label: {label_out}")
+
+    logger.info(f"Saved: {image_out}")
+    logger.info(f"Saved: {label_out}")
 
     if not patella_found:
         logger.warning(
-            f"{case_id}: Patella labels NOT found in TotalSegmentator mask. "
-            f"Manual tracing required for patella ground truth on this case."
+            f"{case_id}: Patella NOT found in TotalSegmentator output. "
+            "Manual tracing required for this case."
         )
 
     return {
@@ -270,107 +239,145 @@ def crop_to_knee(
     }
 
 
-def process_totalsegmentator_cases(
-    raw_dir: str = "data/totalseg_raw",
-    output_dir: str = "data/ct_knee",
-    n_cases: int = 8,
-):
-    """
-    Process TotalSegmentator cases: find CT + label pairs, crop to knee, save.
+# ---------------------------------------------------------------------------
+# 4. Main pipeline: segment + crop a single CT
+# ---------------------------------------------------------------------------
 
-    Expects raw_dir to have per-case subdirectories, each containing:
-        ct.nii.gz           -- the CT volume
-        segmentations/      -- directory with per-label .nii.gz files, OR
-        segmentation.nii.gz -- a single multi-label mask
+def process_single_ct(
+    input_path: str,
+    output_dir: str,
+    case_id: str = None,
+) -> dict:
+    """
+    Full pipeline for one CT file:
+      1. Run TotalSegmentator to get bone labels
+      2. Crop to knee bounding box
+      3. Save image + remapped label
 
     Args:
-        raw_dir: Directory containing raw TotalSegmentator downloads.
-        output_dir: Output directory for cropped knee cases.
+        input_path: Path to input CT (.nii.gz or DICOM dir).
+        output_dir: Root output directory.
+        case_id: Identifier string (defaults to filename stem).
+    """
+    if case_id is None:
+        case_id = os.path.splitext(os.path.splitext(os.path.basename(input_path))[0])[0]
+
+    seg_dir = os.path.join(output_dir, "segmentations", case_id)
+    seg_path = run_totalsegmentator(input_path, seg_dir)
+    if not seg_path:
+        return None
+
+    image = sitk.ReadImage(input_path) if not os.path.isdir(input_path) else _load_dicom(input_path)
+    label = sitk.ReadImage(seg_path)
+
+    result = crop_and_save(image, label, case_id, os.path.join(output_dir, "cropped"))
+    return result
+
+
+def _load_dicom(dicom_dir: str) -> sitk.Image:
+    reader = sitk.ImageSeriesReader()
+    names = reader.GetGDCMSeriesFileNames(dicom_dir)
+    reader.SetFileNames(names)
+    return reader.Execute()
+
+
+# ---------------------------------------------------------------------------
+# 5. Batch processing
+# ---------------------------------------------------------------------------
+
+def process_batch(
+    input_dir: str,
+    output_dir: str,
+    n_cases: int = 8,
+) -> list:
+    """
+    Batch-process all .nii.gz files or DICOM subdirectories in input_dir.
+
+    Args:
+        input_dir: Directory containing CT volumes (.nii.gz) or DICOM subdirs.
+        output_dir: Root output directory for processed cases.
         n_cases: Maximum number of cases to process.
     """
-    import glob
-
-    results = []
-    case_dirs = sorted([
-        d for d in glob.glob(os.path.join(raw_dir, "*/"))
+    # Find .nii.gz files
+    nifti_files = sorted(glob.glob(os.path.join(input_dir, "*.nii.gz")))[:n_cases]
+    # Find DICOM directories
+    dicom_dirs = sorted([
+        d for d in glob.glob(os.path.join(input_dir, "*/"))
         if os.path.isdir(d)
-    ])[:n_cases]
+    ])[:max(0, n_cases - len(nifti_files))]
 
-    if not case_dirs:
+    all_inputs = [(p, "nifti") for p in nifti_files] + [(d, "dicom") for d in dicom_dirs]
+
+    if not all_inputs:
         logger.error(
-            f"No case directories found in {raw_dir}. "
-            "Please download TotalSegmentator cases first."
+            f"No CT files found in {input_dir}.\n"
+            "Place knee CT volumes (.nii.gz) or DICOM directories there, "
+            "then re-run this script."
         )
-        return results
+        return []
 
-    for case_dir in case_dirs:
-        case_id = os.path.basename(case_dir.rstrip("/\\"))
-
-        # Locate CT image
-        ct_path = os.path.join(case_dir, "ct.nii.gz")
-        if not os.path.exists(ct_path):
-            logger.warning(f"{case_id}: ct.nii.gz not found, skipping.")
-            continue
-
-        # Locate segmentation mask (multi-label)
-        seg_path = os.path.join(case_dir, "segmentation.nii.gz")
-        if not os.path.exists(seg_path):
-            # Some releases store it under a different name
-            seg_candidates = glob.glob(os.path.join(case_dir, "*.nii.gz"))
-            seg_candidates = [p for p in seg_candidates if "ct" not in os.path.basename(p)]
-            seg_path = seg_candidates[0] if seg_candidates else None
-
-        if not seg_path:
-            logger.warning(f"{case_id}: No segmentation mask found, skipping.")
-            continue
-
-        # Load
-        logger.info(f"Processing {case_id}...")
-        image = sitk.ReadImage(ct_path)
-        label = sitk.ReadImage(seg_path)
-
-        result = crop_to_knee(image, label, case_id, output_dir)
+    logger.info(f"Found {len(all_inputs)} cases to process.")
+    results = []
+    for path, _ in all_inputs:
+        result = process_single_ct(path, output_dir)
         if result:
             results.append(result)
 
-    # Summary
-    found = [r for r in results if r["patella_found"]]
-    missing = [r for r in results if not r["patella_found"]]
-    logger.info(f"\nProcessed {len(results)} cases.")
-    logger.info(f"  Patella found: {len(found)}")
-    logger.info(f"  Patella missing (manual trace needed): {len(missing)}")
-    if missing:
-        logger.warning(f"  Cases needing patella tracing: {[r['case_id'] for r in missing]}")
-
+    patella_missing = [r for r in results if not r["patella_found"]]
+    logger.info(f"\nComplete: {len(results)} cases processed.")
+    if patella_missing:
+        logger.warning(
+            f"{len(patella_missing)} case(s) need manual patella tracing: "
+            f"{[r['case_id'] for r in patella_missing]}"
+        )
     return results
 
 
+# ---------------------------------------------------------------------------
+# 6. CLI
+# ---------------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Download and crop TotalSegmentator CT cases to knee region"
+        description=(
+            "Prepare CT data for knee bone segmentation (Track B).\n"
+            "Runs TotalSegmentator on provided CT volumes to generate bone masks,\n"
+            "then crops each volume to the knee region."
+        )
     )
-    parser.add_argument("--n_cases", type=int, default=8, help="Number of cases to process")
-    parser.add_argument("--raw_dir", type=str, default="data/totalseg_raw",
-                        help="Directory for raw TotalSegmentator downloads")
-    parser.add_argument("--output_dir", type=str, default="data/ct_knee",
-                        help="Directory for cropped knee CT outputs")
-    parser.add_argument("--download_only", action="store_true",
-                        help="Only download, don't crop")
-    parser.add_argument("--crop_only", action="store_true",
-                        help="Skip download, only crop existing raw data")
-
+    parser.add_argument(
+        "--input_dir", type=str, default="data/ct_dicom",
+        help="Directory containing CT volumes (.nii.gz) or DICOM subdirectories"
+    )
+    parser.add_argument(
+        "--single", type=str, default=None,
+        help="Process a single CT file instead of a batch"
+    )
+    parser.add_argument(
+        "--output_dir", type=str, default="data/ct_knee",
+        help="Output directory for cropped knee cases"
+    )
+    parser.add_argument(
+        "--n_cases", type=int, default=8,
+        help="Maximum number of cases to process"
+    )
+    parser.add_argument(
+        "--skip_install", action="store_true",
+        help="Skip totalsegmentator installation check"
+    )
     args = parser.parse_args()
 
-    if not args.crop_only:
-        download_totalsegmentator_dataset(n_cases=args.n_cases, output_dir=args.raw_dir)
+    if not args.skip_install:
+        if not ensure_totalsegmentator():
+            logger.error("Cannot proceed without totalsegmentator. Exiting.")
+            sys.exit(1)
 
-    if not args.download_only:
-        results = process_totalsegmentator_cases(
-            raw_dir=args.raw_dir,
-            output_dir=args.output_dir,
-            n_cases=args.n_cases,
-        )
-        print(f"\nDone. {len(results)} cropped knee cases saved to {args.output_dir}")
+    if args.single:
+        result = process_single_ct(args.single, args.output_dir)
+        print(f"\nResult: {result}")
+    else:
+        results = process_batch(args.input_dir, args.output_dir, n_cases=args.n_cases)
+        print(f"\nProcessed {len(results)} cases to {args.output_dir}")
 
 
 if __name__ == "__main__":
