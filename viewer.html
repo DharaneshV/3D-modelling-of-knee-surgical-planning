@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knee Bone Segmentation Viewer</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0e1a;
+            color: #e0e6f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: linear-gradient(135deg, #0f1629 0%, #1a1f3a 100%);
+            border-bottom: 1px solid rgba(99, 140, 255, 0.15);
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #64b5f6, #42a5f5, #7c4dff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        header .badge {
+            font-size: 0.7rem;
+            font-weight: 500;
+            background: rgba(124, 77, 255, 0.15);
+            color: #b388ff;
+            padding: 4px 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(124, 77, 255, 0.25);
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            gap: 0;
+        }
+
+        .viewer-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .viewer-label {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 10;
+            font-size: 0.7rem;
+            font-weight: 500;
+            background: rgba(10, 14, 26, 0.8);
+            backdrop-filter: blur(8px);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(99, 140, 255, 0.2);
+            color: #90caf9;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
+            background: #0d1117;
+        }
+
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(180deg, #0f1629 0%, #111830 100%);
+            border-left: 1px solid rgba(99, 140, 255, 0.1);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .sidebar h2 {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #7986cb;
+            margin-bottom: 4px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background 0.2s;
+        }
+
+        .legend-item:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .legend-swatch {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .legend-text {
+            font-size: 0.85rem;
+            font-weight: 400;
+        }
+
+        .legend-label {
+            font-size: 0.65rem;
+            color: #7986cb;
+            margin-left: auto;
+            font-weight: 500;
+        }
+
+        .controls-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .control-row label {
+            font-size: 0.75rem;
+            color: #90a4ae;
+            font-weight: 500;
+        }
+
+        .control-row input[type="range"] {
+            width: 100%;
+            accent-color: #7c4dff;
+            height: 4px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            flex: 1;
+            min-width: 70px;
+            padding: 8px 12px;
+            border: 1px solid rgba(99, 140, 255, 0.2);
+            border-radius: 6px;
+            background: rgba(99, 140, 255, 0.08);
+            color: #90caf9;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn:hover {
+            background: rgba(99, 140, 255, 0.18);
+            border-color: rgba(99, 140, 255, 0.4);
+        }
+
+        .btn.active {
+            background: rgba(124, 77, 255, 0.25);
+            border-color: rgba(124, 77, 255, 0.5);
+            color: #b388ff;
+        }
+
+        .status-bar {
+            background: #080b14;
+            border-top: 1px solid rgba(99, 140, 255, 0.1);
+            padding: 8px 24px;
+            font-size: 0.7rem;
+            color: #546e7a;
+            display: flex;
+            gap: 24px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #4caf50;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .drop-zone {
+            border: 2px dashed rgba(99, 140, 255, 0.2);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+            color: #546e7a;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .drop-zone:hover {
+            border-color: rgba(99, 140, 255, 0.4);
+            background: rgba(99, 140, 255, 0.05);
+        }
+
+        #info-panel {
+            font-size: 0.75rem;
+            color: #78909c;
+            line-height: 1.6;
+        }
+
+        #info-panel strong {
+            color: #b0bec5;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Knee Bone Segmentation Viewer</h1>
+        <span class="badge">Week 2 — HU Thresholding</span>
+    </header>
+
+    <div class="main-container">
+        <div class="viewer-panel">
+            <div class="viewer-label" id="viewLabel">Axial View</div>
+            <canvas id="gl"></canvas>
+        </div>
+
+        <div class="sidebar">
+            <div>
+                <h2>Segmentation Legend</h2>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+                    <div class="legend-item">
+                        <div class="legend-swatch" style="background: #e53935;"></div>
+                        <span class="legend-text">Femur</span>
+                        <span class="legend-label">Label 1</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-swatch" style="background: #43a047;"></div>
+                        <span class="legend-text">Tibia</span>
+                        <span class="legend-label">Label 2</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-swatch" style="background: #1e88e5;"></div>
+                        <span class="legend-text">Patella</span>
+                        <span class="legend-label">Label 3</span>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <h2>Controls</h2>
+                <div class="controls-group">
+                    <div class="control-row">
+                        <label>Overlay Opacity</label>
+                        <input type="range" id="opacitySlider" min="0" max="100" value="60">
+                    </div>
+                    <div class="control-row">
+                        <label>View Orientation</label>
+                        <div class="btn-group">
+                            <button class="btn active" id="btnAxial" onclick="setView('axial')">Axial</button>
+                            <button class="btn" id="btnCoronal" onclick="setView('coronal')">Coronal</button>
+                            <button class="btn" id="btnSagittal" onclick="setView('sagittal')">Sagittal</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <h2>Load Files</h2>
+                <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                    Drop .nii.gz files here<br>or click to browse
+                </div>
+                <input type="file" id="fileInput" multiple accept=".nii,.nii.gz,.gz" style="display: none;">
+            </div>
+
+            <div>
+                <h2>Volume Info</h2>
+                <div id="info-panel">
+                    <em>Load a volume to see details</em>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="status-dot"></div>
+            <span id="statusText">Ready — load CT + mask files</span>
+        </div>
+        <div class="status-item">
+            <span id="dimText"></span>
+        </div>
+    </div>
+
+    <script type="module">
+        import { Niivue } from './node_modules/@niivue/niivue/dist/index.js';
+
+        const nv = new Niivue({
+            backColor: [0.04, 0.05, 0.1, 1],
+            crosshairColor: [0.4, 0.6, 1, 0.4],
+            show3Dcrosshair: false,
+            isRadiologicalConvention: false,
+        });
+
+        nv.attachToCanvas(document.getElementById('gl'));
+
+        // Expose globally for button handlers
+        window.nv = nv;
+
+        // Custom colormap for bone mask: 0=transparent, 1=red(femur), 2=green(tibia), 3=blue(patella)
+        const cmapData = {
+            R: [0, 229, 67, 30],
+            G: [0, 57, 160, 136],
+            B: [0, 53, 71, 229],
+            A: [0, 200, 200, 200],
+            I: [0, 1, 2, 3],
+        };
+
+        // Try to auto-load files from the data directory
+        async function tryAutoLoad() {
+            const ctPath = './data/ct_knee/temp_EAY131-5310722.nii.gz';
+            const maskPath = './data/ct_knee/case01_bone_mask.nii.gz';
+
+            try {
+                document.getElementById('statusText').textContent = 'Loading CT volume + bone mask...';
+                await nv.loadVolumes([
+                    { url: ctPath, name: 'CT Volume' },
+                    {
+                        url: maskPath,
+                        name: 'Bone Mask',
+                        colormap: 'roi18',
+                        opacity: 0.6,
+                    },
+                ]);
+                updateInfo();
+                document.getElementById('statusText').textContent = 'Loaded — scroll to navigate slices';
+            } catch (e) {
+                console.log('Auto-load failed (expected if not served from project root):', e);
+                document.getElementById('statusText').textContent = 'Drag & drop your .nii.gz files to view';
+            }
+        }
+
+        tryAutoLoad();
+
+        // File input handler
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+
+            document.getElementById('statusText').textContent = `Loading ${files.length} file(s)...`;
+
+            const volumes = files.map((f, i) => {
+                const opts = { name: f.name };
+                // If filename contains 'mask' or 'seg', treat as overlay
+                if (i > 0 || f.name.toLowerCase().includes('mask') || f.name.toLowerCase().includes('seg')) {
+                    opts.colormap = 'roi18';
+                    opts.opacity = 0.6;
+                }
+                return opts;
+            });
+
+            await nv.loadFromFile(files[0]);
+            for (let i = 1; i < files.length; i++) {
+                await nv.loadFromFile(files[i]);
+                nv.setOpacity(i, 0.6);
+                nv.volumes[i].colormap = 'roi18';
+            }
+
+            nv.updateGLVolume();
+            updateInfo();
+            document.getElementById('statusText').textContent = `Loaded ${files.length} volume(s) — scroll to navigate`;
+        });
+
+        // Drag and drop
+        const dropZone = document.getElementById('dropZone');
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(124, 77, 255, 0.6)'; });
+        dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'rgba(99, 140, 255, 0.2)'; });
+        dropZone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'rgba(99, 140, 255, 0.2)';
+            const files = Array.from(e.dataTransfer.files);
+            if (files.length === 0) return;
+
+            document.getElementById('statusText').textContent = `Loading ${files.length} file(s)...`;
+            await nv.loadFromFile(files[0]);
+            for (let i = 1; i < files.length; i++) {
+                await nv.loadFromFile(files[i]);
+                nv.setOpacity(i, 0.6);
+            }
+            nv.updateGLVolume();
+            updateInfo();
+            document.getElementById('statusText').textContent = `Loaded ${files.length} volume(s)`;
+        });
+
+        // Opacity slider
+        document.getElementById('opacitySlider').addEventListener('input', (e) => {
+            const val = parseInt(e.target.value) / 100;
+            if (nv.volumes.length > 1) {
+                nv.setOpacity(1, val);
+            }
+        });
+
+        // View buttons
+        window.setView = function(view) {
+            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+            if (view === 'axial') {
+                nv.setSliceType(nv.sliceTypeAxial);
+                document.getElementById('btnAxial').classList.add('active');
+                document.getElementById('viewLabel').textContent = 'Axial View';
+            } else if (view === 'coronal') {
+                nv.setSliceType(nv.sliceTypeCoronal);
+                document.getElementById('btnCoronal').classList.add('active');
+                document.getElementById('viewLabel').textContent = 'Coronal View';
+            } else if (view === 'sagittal') {
+                nv.setSliceType(nv.sliceTypeSagittal);
+                document.getElementById('btnSagittal').classList.add('active');
+                document.getElementById('viewLabel').textContent = 'Sagittal View';
+            }
+        };
+
+        function updateInfo() {
+            if (nv.volumes.length === 0) return;
+            const v = nv.volumes[0];
+            const hdr = v.hdr;
+            const dims = hdr ? `${hdr.dims[1]} × ${hdr.dims[2]} × ${hdr.dims[3]}` : 'N/A';
+            const spacing = v.pixDims ? `${v.pixDims[1].toFixed(2)} × ${v.pixDims[2].toFixed(2)} × ${v.pixDims[3].toFixed(2)} mm` : 'N/A';
+
+            document.getElementById('info-panel').innerHTML = `
+                <strong>Dimensions:</strong> ${dims}<br>
+                <strong>Spacing:</strong> ${spacing}<br>
+                <strong>Volumes loaded:</strong> ${nv.volumes.length}
+            `;
+            document.getElementById('dimText').textContent = dims;
+        }
+    </script>
+</body>
+</html>

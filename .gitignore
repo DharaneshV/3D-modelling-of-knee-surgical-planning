@@ -156,3 +156,5 @@ cython_debug/
 data/
 results/
 measurement_validation.csv
+node_modules/
+package-lock.json

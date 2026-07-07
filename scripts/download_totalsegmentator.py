@@ -1,25 +1,24 @@
 """
-Download and prepare CT data for the bone segmentation track (Track B).
+Prepare CT data for the bone segmentation track (Track B).
 
-STRATEGY (revised):
-  The TotalSegmentator Zenodo dataset is a monolithic 23 GB archive — impractical
-  to download for a POC. Instead, we use two approaches:
-
-  Option A (recommended): Install the `totalsegmentator` pip package and run it
-    on any publicly available knee CT DICOM to generate bone masks automatically.
-    TotalSegmentator will segment femur, tibia, patella from any CT.
-
-  Option B: Download a small public knee CT from the TCIA Knee Phantom collection
-    or similar small, open-access CT dataset, then run TotalSegmentator on it.
-
-  This script:
-    1. Installs totalsegmentator if not present.
-    2. Downloads 5-8 small public CT cases (TCIA knee phantom / other CC-licensed source).
-    3. Runs TotalSegmentator inference on each to produce bone masks.
-    4. Crops each volume to the knee bounding box using the resulting labels.
+Features:
+  1. Automated Data Acquisition: Uses idc-index to query and download public
+     knee-relevant CT scans from the NCI Imaging Data Commons (IDC) (such as
+     extremity CTs from the soft_tissue_sarcoma collection). Downloads are
+     accelerated using s5cmd under the hood.
+  2. TotalSegmentator Inference: Runs TotalSegmentator on the downloaded DICOM
+     directories to automatically generate femur, tibia, and patella masks.
+  3. Knee-Region Cropping: Computes a bounding box around the knee joint based on
+     the label extents, applies 30mm padding, and crops both the CT volume and the
+     segmentation mask to the knee region.
+  4. Label Remapping: Remaps TotalSegmentator bone outputs to pipeline-standard
+     labels (femur=1, tibia=2, patella=3).
 
 Usage:
-    python scripts/download_totalsegmentator.py --input_dir data/ct_dicom --output_dir data/ct_knee
+    # Run the full automated pipeline (download 8 cases -> segment -> crop):
+    python scripts/download_totalsegmentator.py
+
+    # Process a single local file/directory instead:
     python scripts/download_totalsegmentator.py --single path/to/ct.nii.gz
 """
 
@@ -30,6 +29,7 @@ import subprocess
 import sys
 import glob
 import numpy as np
+import pandas as pd
 import SimpleITK as sitk
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -63,7 +63,7 @@ CROP_PADDING_MM = 30.0
 
 
 # ---------------------------------------------------------------------------
-# 1. Install TotalSegmentator
+# 1. Install & Verify TotalSegmentator
 # ---------------------------------------------------------------------------
 
 def ensure_totalsegmentator():
@@ -87,7 +87,100 @@ def ensure_totalsegmentator():
 
 
 # ---------------------------------------------------------------------------
-# 2. Run TotalSegmentator inference on a CT volume
+# 2. Automated Download from IDC (NCI Imaging Data Commons)
+# ---------------------------------------------------------------------------
+
+def download_idc_samples(n_cases: int = 8, download_dir: str = "data/ct_dicom") -> list:
+    """
+    Query and download knee-relevant CT scans from IDC.
+
+    Queries the local IDC index for CT scans of the lower extremity/extremity/knee
+    that are 3D volumes (high instance count). Downloads the DICOM files using s5cmd.
+
+    Args:
+        n_cases: Number of cases to download.
+        download_dir: Local directory to save downloaded DICOM files.
+
+    Returns:
+        List of local DICOM folder paths.
+    """
+    try:
+        from idc_index import IDCClient
+    except ImportError:
+        logger.error("idc-index is not installed. Run `pip install idc-index`.")
+        return []
+
+    os.makedirs(download_dir, exist_ok=True)
+    logger.info("Querying local IDC metadata index for matching CT scans...")
+
+    client = IDCClient.client()
+    query = """
+    SELECT 
+        collection_id, 
+        PatientID, 
+        StudyInstanceUID, 
+        SeriesInstanceUID, 
+        instanceCount, 
+        BodyPartExamined,
+        SeriesDescription
+    FROM index 
+    WHERE Modality = 'CT' 
+      AND (SeriesDescription LIKE '%KNEE%' 
+           OR SeriesDescription LIKE '%LEG%' 
+           OR SeriesDescription LIKE '%THIGH%' 
+           OR SeriesDescription LIKE '%FEMUR%' 
+           OR SeriesDescription LIKE '%TIBIA%'
+           OR BodyPartExamined LIKE '%KNEE%')
+      AND instanceCount > 80
+    ORDER BY instanceCount ASC
+    """
+    try:
+        results = client.sql_query(query)
+        if not isinstance(results, pd.DataFrame):
+            df = pd.DataFrame(results)
+        else:
+            df = results
+
+        if df.empty:
+            logger.error("No matching CT scans found in the IDC index.")
+            return []
+
+        # Deduplicate by PatientID to ensure we get unique patients
+        df_unique = df.drop_duplicates(subset=["PatientID"]).head(n_cases)
+        series_uids = df_unique["SeriesInstanceUID"].tolist()
+        patient_ids = df_unique["PatientID"].tolist()
+
+        logger.info(f"Selected {len(series_uids)} unique Patient cases from IDC:")
+        for idx, row in df_unique.iterrows():
+            logger.info(f"  Patient: {row['PatientID']} | Collection: {row['collection_id']} | Desc: {row['SeriesDescription']} | CT ({row['instanceCount']} images)")
+
+        # Download using the client
+        logger.info(f"Downloading {len(series_uids)} series via idc-index to {download_dir}...")
+        
+        # We specify a directory template to organize files by PatientID
+        client.download_from_selection(
+            seriesInstanceUID=series_uids,
+            downloadDir=download_dir,
+            dirTemplate="%PatientID"
+        )
+        
+        # Verify and return paths to the patient directories
+        downloaded_dirs = []
+        for pid in patient_ids:
+            p_dir = os.path.join(download_dir, pid)
+            if os.path.exists(p_dir) and os.listdir(p_dir):
+                downloaded_dirs.append(p_dir)
+                
+        logger.info(f"Successfully downloaded {len(downloaded_dirs)} cases.")
+        return downloaded_dirs
+
+    except Exception as e:
+        logger.error(f"Error querying/downloading from IDC: {e}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# 3. Run TotalSegmentator
 # ---------------------------------------------------------------------------
 
 def run_totalsegmentator(
@@ -96,34 +189,61 @@ def run_totalsegmentator(
     task: str = "total",
     multilabel: bool = True,
 ) -> str:
-    """
-    Run TotalSegmentator on a CT volume to generate bone segmentation masks.
-
-    Args:
-        input_path: Path to CT volume (.nii.gz or DICOM directory).
-        output_dir: Directory to write segmentation output.
-        task: TotalSegmentator task (default 'total' for all 104 structures).
-        multilabel: If True, output a single multi-label NIfTI (easier to use).
-
-    Returns:
-        Path to the output segmentation file.
-    """
+    """Run TotalSegmentator on a CT volume to generate bone segmentation masks."""
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, "segmentation.nii.gz")
 
-    cmd = [
-        sys.executable, "-m", "totalsegmentator",
-        "-i", input_path,
+    # Locate the TotalSegmentator executable in the virtual environment's bin/Scripts folder
+    bin_dir = os.path.dirname(sys.executable)
+    exe_names = ["TotalSegmentator.exe", "TotalSegmentator", "totalsegmentator.exe", "totalsegmentator"]
+    totalseg_bin = "TotalSegmentator"  # default fallback
+    for name in exe_names:
+        candidate = os.path.join(bin_dir, name)
+        if os.path.exists(candidate):
+            totalseg_bin = candidate
+            break
+
+    # We must squeeze the input image if it's 4D to prevent nnUNet/nibabel crashes
+    squeezed_input_path = input_path
+    if not os.path.isdir(input_path):
+        try:
+            img = sitk.ReadImage(input_path)
+            squeezed_img = check_and_squeeze_3d(img)
+            if squeezed_img.GetDimension() < img.GetDimension():
+                # Write back squeezed image to a temp file
+                squeezed_input_path = os.path.join(os.path.dirname(output_path), f"squeezed_{os.path.basename(input_path)}")
+                sitk.WriteImage(squeezed_img, squeezed_input_path)
+                logger.info(f"Wrote squeezed 3D image to {squeezed_input_path}")
+        except Exception as e:
+            logger.error(f"Error checking image dimensions: {e}")
+
+    if not totalseg_bin.lower().endswith(".exe") and os.name == "nt":
+        cmd_prefix = [sys.executable, totalseg_bin]
+    else:
+        cmd_prefix = [totalseg_bin]
+
+    cmd = cmd_prefix + [
+        "-i", squeezed_input_path,
         "-o", output_path,
         "--task", task,
+        "--fast",
     ]
     if multilabel:
         cmd.append("--ml")
 
-    logger.info(f"Running TotalSegmentator on {input_path}...")
+    logger.info(f"Running TotalSegmentator on {squeezed_input_path}...")
     logger.info(f"Command: {' '.join(cmd)}")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Set environment variable to bypass PyTorch 2.6 default weights_only unpickling error
+    env = os.environ.copy()
+    env["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
+
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    
+    # Clean up squeezed temp file if created
+    if squeezed_input_path != input_path and os.path.exists(squeezed_input_path):
+        os.remove(squeezed_input_path)
+
     if result.returncode != 0:
         logger.error(f"TotalSegmentator failed:\n{result.stderr}")
         return None
@@ -132,16 +252,25 @@ def run_totalsegmentator(
     return output_path
 
 
+def check_and_squeeze_3d(image: sitk.Image) -> sitk.Image:
+    """If image has 4 dimensions (e.g. 3D+time), collapse the 4th dimension to get 3D."""
+    if image.GetDimension() == 4:
+        size = list(image.GetSize())
+        if size[3] == 1:
+            size[3] = 0
+            logger.info("Extracting 3D volume from 4D image.")
+            image = sitk.Extract(image, size, [0, 0, 0, 0])
+    return image
+
+
 # ---------------------------------------------------------------------------
-# 3. Knee bounding box crop
+# 4. Knee-region cropping and remapping
 # ---------------------------------------------------------------------------
 
 def get_knee_bounding_box(label_volume: sitk.Image, padding_mm: float = CROP_PADDING_MM):
     """
     Compute a bounding box around the knee region from the femur/tibia label extent.
-
-    Returns (lower, size) tuples in SimpleITK [X, Y, Z] order,
-    or (None, None) if no knee labels are found.
+    Returns (lower, size) tuples in SimpleITK [X, Y, Z] order.
     """
     label_arr = sitk.GetArrayFromImage(label_volume)  # [Z, Y, X]
     spacing = label_volume.GetSpacing()               # [X, Y, Z]
@@ -180,7 +309,6 @@ def get_knee_bounding_box(label_volume: sitk.Image, padding_mm: float = CROP_PAD
 def remap_labels(label_volume: sitk.Image):
     """
     Remap TotalSegmentator labels to pipeline standard: femur=1, tibia=2, patella=3.
-    Returns (remapped_image, patella_found).
     """
     arr = sitk.GetArrayFromImage(label_volume)
     out = np.zeros_like(arr, dtype=np.uint8)
@@ -240,7 +368,7 @@ def crop_and_save(
 
 
 # ---------------------------------------------------------------------------
-# 4. Main pipeline: segment + crop a single CT
+# 5. Main pipelines
 # ---------------------------------------------------------------------------
 
 def process_single_ct(
@@ -248,22 +376,39 @@ def process_single_ct(
     output_dir: str,
     case_id: str = None,
 ) -> dict:
-    """
-    Full pipeline for one CT file:
-      1. Run TotalSegmentator to get bone labels
-      2. Crop to knee bounding box
-      3. Save image + remapped label
-
-    Args:
-        input_path: Path to input CT (.nii.gz or DICOM dir).
-        output_dir: Root output directory.
-        case_id: Identifier string (defaults to filename stem).
-    """
+    """Full pipeline for one CT file: Segment -> Crop -> Remap."""
+    # Strip trailing slashes to prevent empty case_id when directories have trailing slashes
+    input_path = input_path.rstrip("/\\")
     if case_id is None:
         case_id = os.path.splitext(os.path.splitext(os.path.basename(input_path))[0])[0]
 
+    # Convert DICOM directory to temporary NIfTI if it is a directory.
+    # SimpleITK is extremely robust and avoids dicom2nifti spacing crashes.
+    is_temp_nifti = False
+    if os.path.isdir(input_path):
+        logger.info(f"Converting DICOM directory {input_path} to temporary NIfTI via SimpleITK...")
+        temp_nifti_path = os.path.join(output_dir, f"temp_{case_id}.nii.gz")
+        os.makedirs(output_dir, exist_ok=True)
+        try:
+            image = _load_dicom(input_path)
+            sitk.WriteImage(image, temp_nifti_path)
+            totalseg_input = temp_nifti_path
+            is_temp_nifti = True
+            logger.info(f"Temporary NIfTI written to {temp_nifti_path}")
+        except Exception as e:
+            logger.error(f"Failed to convert DICOM to temporary NIfTI: {e}")
+            return None
+    else:
+        totalseg_input = input_path
+
     seg_dir = os.path.join(output_dir, "segmentations", case_id)
-    seg_path = run_totalsegmentator(input_path, seg_dir)
+    seg_path = run_totalsegmentator(totalseg_input, seg_dir)
+    
+    # Clean up temporary NIfTI if we created it
+    if is_temp_nifti and os.path.exists(totalseg_input):
+        os.remove(totalseg_input)
+        logger.info(f"Cleaned up temporary NIfTI: {totalseg_input}")
+
     if not seg_path:
         return None
 
@@ -281,55 +426,31 @@ def _load_dicom(dicom_dir: str) -> sitk.Image:
     return reader.Execute()
 
 
-# ---------------------------------------------------------------------------
-# 5. Batch processing
-# ---------------------------------------------------------------------------
-
 def process_batch(
     input_dir: str,
     output_dir: str,
     n_cases: int = 8,
 ) -> list:
-    """
-    Batch-process all .nii.gz files or DICOM subdirectories in input_dir.
-
-    Args:
-        input_dir: Directory containing CT volumes (.nii.gz) or DICOM subdirs.
-        output_dir: Root output directory for processed cases.
-        n_cases: Maximum number of cases to process.
-    """
-    # Find .nii.gz files
+    """Batch-process all .nii.gz files or DICOM subdirectories in input_dir."""
     nifti_files = sorted(glob.glob(os.path.join(input_dir, "*.nii.gz")))[:n_cases]
-    # Find DICOM directories
     dicom_dirs = sorted([
         d for d in glob.glob(os.path.join(input_dir, "*/"))
         if os.path.isdir(d)
     ])[:max(0, n_cases - len(nifti_files))]
 
-    all_inputs = [(p, "nifti") for p in nifti_files] + [(d, "dicom") for d in dicom_dirs]
+    all_inputs = nifti_files + dicom_dirs
 
     if not all_inputs:
-        logger.error(
-            f"No CT files found in {input_dir}.\n"
-            "Place knee CT volumes (.nii.gz) or DICOM directories there, "
-            "then re-run this script."
-        )
+        logger.error(f"No CT files found in {input_dir}.")
         return []
 
     logger.info(f"Found {len(all_inputs)} cases to process.")
     results = []
-    for path, _ in all_inputs:
+    for path in all_inputs:
         result = process_single_ct(path, output_dir)
         if result:
             results.append(result)
 
-    patella_missing = [r for r in results if not r["patella_found"]]
-    logger.info(f"\nComplete: {len(results)} cases processed.")
-    if patella_missing:
-        logger.warning(
-            f"{len(patella_missing)} case(s) need manual patella tracing: "
-            f"{[r['case_id'] for r in patella_missing]}"
-        )
     return results
 
 
@@ -341,17 +462,17 @@ def main():
     parser = argparse.ArgumentParser(
         description=(
             "Prepare CT data for knee bone segmentation (Track B).\n"
-            "Runs TotalSegmentator on provided CT volumes to generate bone masks,\n"
-            "then crops each volume to the knee region."
+            "Automatically downloads public knee CTs from IDC (via idc-index),\n"
+            "runs TotalSegmentator, crops to knee joint, and remaps labels."
         )
     )
     parser.add_argument(
         "--input_dir", type=str, default="data/ct_dicom",
-        help="Directory containing CT volumes (.nii.gz) or DICOM subdirectories"
+        help="Directory containing CT volumes or DICOM directories (download target)"
     )
     parser.add_argument(
         "--single", type=str, default=None,
-        help="Process a single CT file instead of a batch"
+        help="Process a single local CT file instead of downloading/batching"
     )
     parser.add_argument(
         "--output_dir", type=str, default="data/ct_knee",
@@ -359,7 +480,7 @@ def main():
     )
     parser.add_argument(
         "--n_cases", type=int, default=8,
-        help="Maximum number of cases to process"
+        help="Number of cases to query/process (default: 8)"
     )
     parser.add_argument(
         "--skip_install", action="store_true",
@@ -376,6 +497,16 @@ def main():
         result = process_single_ct(args.single, args.output_dir)
         print(f"\nResult: {result}")
     else:
+        # Check if local input dir already has cases
+        local_cases = glob.glob(os.path.join(args.input_dir, "*.nii.gz")) + [
+            d for d in glob.glob(os.path.join(args.input_dir, "*/")) if os.path.isdir(d)
+        ]
+        
+        # If no local cases, automatically download from IDC first
+        if not local_cases:
+            logger.info("No local CT files found in input_dir. Starting automated IDC download...")
+            local_cases = download_idc_samples(n_cases=args.n_cases, download_dir=args.input_dir)
+            
         results = process_batch(args.input_dir, args.output_dir, n_cases=args.n_cases)
         print(f"\nProcessed {len(results)} cases to {args.output_dir}")
 
