@@ -14,14 +14,10 @@ SELECT
     instanceCount,
     BodyPartExamined,
     SeriesDescription
-FROM index 
+FROM index
 WHERE Modality = 'CT' 
-  AND (SeriesDescription LIKE '%KNEE%' 
-       OR SeriesDescription LIKE '%LEG%' 
-       OR SeriesDescription LIKE '%THIGH%' 
-       OR SeriesDescription LIKE '%FEMUR%' 
-       OR SeriesDescription LIKE '%TIBIA%'
-       OR BodyPartExamined LIKE '%KNEE%')
+  AND (BodyPartExamined = 'EXTREMITY' OR BodyPartExamined = 'LOWER LIMB' OR BodyPartExamined = 'KNEE')
+  AND (SeriesDescription LIKE '%KNEE%' OR SeriesDescription LIKE '%LEG%' OR SeriesDescription LIKE '%THIGH%' OR SeriesDescription LIKE '%FEMUR%' OR SeriesDescription LIKE '%TIBIA%')
   AND instanceCount > 80
 LIMIT 50
 """

@@ -14,18 +14,21 @@ matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 
-CT_PATH = "data/ct_knee/temp_EAY131-5310722.nii.gz"
-MASK_PATH = "data/ct_knee/case01_bone_mask.nii.gz"
-OUTPUT_PATH = "results/bone_segmentation_preview.png"
-
+import argparse
 
 def main():
-    print("Loading CT volume...")
-    ct = sitk.ReadImage(CT_PATH, sitk.sitkFloat32)
+    parser = argparse.ArgumentParser(description="Visualize CT + bone mask overlay")
+    parser.add_argument("--ct", required=True, help="Path to CT volume")
+    parser.add_argument("--mask", required=True, help="Path to bone mask")
+    parser.add_argument("--output", required=True, help="Path to save preview image")
+    args = parser.parse_args()
+
+    print(f"Loading CT volume from {args.ct}...")
+    ct = sitk.ReadImage(args.ct, sitk.sitkFloat32)
     ct_arr = sitk.GetArrayFromImage(ct)  # shape: (Z, Y, X)
 
-    print("Loading bone mask...")
-    mask = sitk.ReadImage(MASK_PATH, sitk.sitkUInt16)
+    print(f"Loading bone mask from {args.mask}...")
+    mask = sitk.ReadImage(args.mask, sitk.sitkUInt16)
     mask_arr = sitk.GetArrayFromImage(mask)  # shape: (Z, Y, X)
 
     print(f"CT shape: {ct_arr.shape}, Mask shape: {mask_arr.shape}")
@@ -86,12 +89,32 @@ def main():
     ]
 
     for ax, (title, ct_slice, mask_slice) in zip(axes.flat, views):
-        ax.imshow(ct_slice, cmap='gray', aspect='auto')
+        origin = 'lower' if ('Coronal' in title or 'Sagittal' in title) else 'upper'
+        ax.imshow(ct_slice, cmap='gray', aspect='auto', origin=origin)
         # Only overlay where mask > 0
         masked = np.ma.masked_where(mask_slice == 0, mask_slice)
-        ax.imshow(masked, cmap=cmap_mask, vmin=0, vmax=3, aspect='auto')
+        ax.imshow(masked, cmap=cmap_mask, vmin=0, vmax=3, aspect='auto', origin=origin)
         ax.set_title(title, color='white', fontsize=12, pad=8)
-        ax.axis('off')
+        
+        if 'Coronal' in title or 'Sagittal' in title:
+            ax.set_ylabel("Z-index", color='white')
+            ax.tick_params(axis='y', colors='white')
+            ax.tick_params(axis='x', bottom=False, labelbottom=False)
+            
+            # Annotate top and bottom of the plot visually
+            height = ct_slice.shape[0]
+            if origin == 'lower':
+                top_z = height - 1
+                bottom_z = 0
+            else:
+                top_z = 0
+                bottom_z = height - 1
+                
+            ax.text(0.5, 0.98, f"Z-index={top_z}", color='yellow', fontsize=12, ha='center', va='top', transform=ax.transAxes, fontweight='bold')
+            ax.text(0.5, 0.02, f"Z-index={bottom_z}", color='yellow', fontsize=12, ha='center', va='bottom', transform=ax.transAxes, fontweight='bold')
+        else:
+            ax.axis('off')
+            
         ax.set_facecolor('#0a0e1a')
 
     # Add legend
@@ -107,10 +130,11 @@ def main():
 
     plt.tight_layout(rect=[0, 0.04, 1, 0.96])
 
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    plt.savefig(OUTPUT_PATH, dpi=150, bbox_inches='tight', facecolor='#0a0e1a')
+    if os.path.dirname(args.output):
+        os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    plt.savefig(args.output, dpi=150, bbox_inches='tight', facecolor='#0a0e1a')
     plt.close()
-    print(f"\nSaved preview to {OUTPUT_PATH}")
+    print(f"\nSaved preview to {args.output}")
 
 
 if __name__ == "__main__":

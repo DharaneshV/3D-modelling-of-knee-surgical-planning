@@ -67,6 +67,57 @@ def threshold_bone(
 
 
 # ---------------------------------------------------------------------------
+# 1b. Bilateral FOV Splitting
+# ---------------------------------------------------------------------------
+
+def crop_to_leg(image: sitk.Image, side: str = "right") -> sitk.Image:
+    """
+    Splits a bilateral CT volume down the middle (sagittal plane) and returns only one leg.
+    Uses the direction matrix to ensure the correct side is cropped regardless of patient orientation.
+
+    Args:
+        image: sitk.Image to crop.
+        side: "right" or "left". Default is "right".
+
+    Returns:
+        Cropped sitk.Image containing only one side.
+    """
+    direction = image.GetDirection()
+    logger.info(f"Cropping volume to {side} leg... X-axis direction cosine: {direction[0]:.4f}")
+    
+    size = image.GetSize()
+    mid_x = size[0] // 2
+
+    # In standard LPS, X goes Right to Left. If direction[0] > 0, lower X index is Right.
+    # If direction[0] < 0, higher X index is Right.
+    if direction[0] >= 0:
+        if side.lower() == "right":
+            extract_size = [mid_x, size[1], size[2]]
+            extract_index = [0, 0, 0]
+        elif side.lower() == "left":
+            extract_size = [size[0] - mid_x, size[1], size[2]]
+            extract_index = [mid_x, 0, 0]
+        else:
+            raise ValueError("side must be 'right' or 'left'")
+    else:
+        if side.lower() == "left":
+            extract_size = [mid_x, size[1], size[2]]
+            extract_index = [0, 0, 0]
+        elif side.lower() == "right":
+            extract_size = [size[0] - mid_x, size[1], size[2]]
+            extract_index = [mid_x, 0, 0]
+        else:
+            raise ValueError("side must be 'right' or 'left'")
+
+    extractor = sitk.ExtractImageFilter()
+    extractor.SetSize(extract_size)
+    extractor.SetIndex(extract_index)
+
+    return extractor.Execute(image)
+
+
+
+# ---------------------------------------------------------------------------
 # 2. Morphological cleanup
 # ---------------------------------------------------------------------------
 
@@ -120,9 +171,9 @@ def separate_bones(
     Use connected-component analysis to isolate individual bone structures
     (femur, tibia, patella) from a single binary bone mask.
 
-    Bones are labeled by size (largest = femur, second = tibia, third = patella).
-    This heuristic works well for knee CT because the femur is always the
-    largest bone in the field of view, followed by the tibia.
+    The heuristic relies on the volume containing only one leg (after 
+    `crop_to_leg`), where the largest components correspond to the femur, 
+    tibia, and patella.
 
     Args:
         bone_mask: Binary bone mask (sitk.Image).
