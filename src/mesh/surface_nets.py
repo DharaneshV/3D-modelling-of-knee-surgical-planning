@@ -19,9 +19,17 @@ def generate_multilabel_mesh(mask_path: str, label_map: dict) -> pv.PolyData:
     reader.SetFileName(mask_path)
     reader.Update()
     
+    # Pad the image with 1 voxel of 0s on all sides to ensure closed meshes at volume boundaries
+    pad = vtk.vtkImageConstantPad()
+    pad.SetInputConnection(reader.GetOutputPort())
+    extent = reader.GetOutput().GetExtent()
+    pad.SetOutputWholeExtent(extent[0]-1, extent[1]+1, extent[2]-1, extent[3]+1, extent[4]-1, extent[5]+1)
+    pad.SetConstant(0)
+    pad.Update()
+    
     # 2. Extract meshes using SurfaceNets3D
     surfacenets = vtk.vtkSurfaceNets3D()
-    surfacenets.SetInputConnection(reader.GetOutputPort())
+    surfacenets.SetInputConnection(pad.GetOutputPort())
     
     # Dynamically configure labels based on the provided label_map
     surfacenets.SetNumberOfLabels(len(label_map))

@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import SimpleITK as sitk
+import numpy as np
 
 DEFAULT_HU_THRESHOLD = 200
 DEFAULT_SPACING = (1.0, 1.0, 1.0)  # mm, isotropic
@@ -225,12 +226,34 @@ def assign_anatomical_labels(component_mask, stats, top_labels):
 
     change_filter = sitk.ChangeLabelImageFilter()
     change_filter.SetChangeMap(full_change_map)
-    return change_filter.Execute(sitk.Cast(component_mask, sitk.sitkUInt16))
+    labeled_markers = change_filter.Execute(sitk.Cast(component_mask, sitk.sitkUInt16))
+    
+    # Fill holes on the markers independently to ensure solid seeds for watershed
+    labeled_markers_arr = sitk.GetArrayFromImage(labeled_markers)
+    filled_markers_arr = np.zeros_like(labeled_markers_arr)
+    
+    for l in [1, 2, 3]:
+        label_mask_arr = (labeled_markers_arr == l).astype(np.uint8)
+        if np.sum(label_mask_arr) > 0:
+            label_img = sitk.GetImageFromArray(label_mask_arr)
+            filled_label_arr = np.zeros_like(label_mask_arr)
+            for z in range(label_mask_arr.shape[0]):
+                slice_img = sitk.GetImageFromArray(label_mask_arr[z].astype(np.uint8))
+                filled_slice = sitk.BinaryFillhole(slice_img)
+                filled_label_arr[z] = sitk.GetArrayFromImage(filled_slice)
+            filled_markers_arr[filled_label_arr == 1] = l
+            
+    final_markers = sitk.GetImageFromArray(filled_markers_arr)
+    final_markers.CopyInformation(component_mask)
+    return final_markers
 
 
 # ---------- Entry point ----------
 
-def run(input_path, output_path, hu_threshold=DEFAULT_HU_THRESHOLD, spacing=DEFAULT_SPACING, leg="right"):
+def run(input_path, output_path, hu_threshold=DEFAULT_HU_THRESHOLD, hu_threshold_pass2=200, spacing=DEFAULT_SPACING, leg="right"):
+    import logging
+    logger = logging.getLogger(__name__)
+
     raw_ct = sitk.ReadImage(input_path, sitk.sitkFloat32)
 
     print(f"Original spacing: {raw_ct.GetSpacing()}, size: {raw_ct.GetSize()}")
@@ -251,11 +274,94 @@ def run(input_path, output_path, hu_threshold=DEFAULT_HU_THRESHOLD, spacing=DEFA
         logging.getLogger(__name__).error(f"Anatomical validation failed: {e}")
         raise
 
-    final_mask = assign_anatomical_labels(components, stats, top_3_labels)
+    markers = assign_anatomical_labels(components, stats, top_3_labels)
+    
+    print(f"Running Pass 2 (Low threshold) at HU={hu_threshold_pass2}...")
+    binary_low = threshold_bone(ct_leg, hu_threshold_pass2)
+    binary_low = clean_mask(binary_low)
+    
+    # Run a quick check on Pass 2 topology at the joint
+    components_low = sitk.ConnectedComponent(binary_low)
+    stats_low = sitk.LabelShapeStatisticsImageFilter()
+    stats_low.Execute(components_low)
+    
+    # We use skimage watershed on the negative distance transform
+    import numpy as np
+    from scipy.ndimage import distance_transform_edt
+    from skimage.segmentation import watershed
+    
+    markers_arr = sitk.GetArrayFromImage(markers)
+    mask_arr = sitk.GetArrayFromImage(binary_low)
+    comp_arr = sitk.GetArrayFromImage(components_low)
+    
+    # Check if femur and tibia markers fall into the same component in low mask
+    # marker labels: femur=1, tibia=2
+    femur_pixels = comp_arr[markers_arr == 1]
+    tibia_pixels = comp_arr[markers_arr == 2]
+    femur_comps = set(femur_pixels[femur_pixels > 0])
+    tibia_comps = set(tibia_pixels[tibia_pixels > 0])
+    
+    merged = len(femur_comps.intersection(tibia_comps)) > 0
+    if merged:
+        print("PASS2_STATUS: MERGED")
+    else:
+        print("PASS2_STATUS: SEPARATED")
+        
+    # Topography: distance to background. Deep valleys at center of bones.
+    dist = distance_transform_edt(mask_arr)
+    topography = -dist
+    
+    print("Applying marker-controlled watershed...")
+    labels_arr = watershed(topography, markers_arr, mask=mask_arr)
+    
+    final_mask_arr = np.zeros_like(labels_arr, dtype=np.uint16)
+    
+    # Fill holes per-label to make bones solid
+    for l in [1, 2, 3]:  # femur, tibia, patella
+        # Extract binary mask for this label
+        label_mask_arr = (labels_arr == l).astype(np.uint8)
+        if np.sum(label_mask_arr) > 0:
+            label_img = sitk.GetImageFromArray(label_mask_arr)
+            filled_label_arr = np.zeros_like(label_mask_arr)
+            for z in range(label_mask_arr.shape[0]):
+                slice_img = sitk.GetImageFromArray(label_mask_arr[z].astype(np.uint8))
+                filled_slice = sitk.BinaryFillhole(slice_img)
+                filled_label_arr[z] = sitk.GetArrayFromImage(filled_slice)
+            # Recombine into final mask
+            final_mask_arr[filled_label_arr == 1] = l
 
-    final_mask.CopyInformation(ct_leg)
+    # Explicitly pad the image by 1 voxel on all sides to ensure closed meshes
+    padded_arr = np.pad(final_mask_arr, pad_width=1, mode='constant', constant_values=0)
+    final_mask = sitk.GetImageFromArray(padded_arr)
+    final_mask.SetSpacing(ct_leg.GetSpacing())
+    final_mask.SetDirection(ct_leg.GetDirection())
+    
+    # Adjust origin to account for the 1-voxel padding
+    origin = ct_leg.GetOrigin()
+    spacing = ct_leg.GetSpacing()
+    direction = ct_leg.GetDirection()
+    
+    # Physical shift = -1 * spacing * direction matrix
+    import numpy as np
+    dir_mat = np.array(direction).reshape((3,3))
+    shift = -1.0 * np.array(spacing)
+    new_origin = np.array(origin) + dir_mat.dot(shift)
+    final_mask.SetOrigin(new_origin.tolist())
+    
+    # Re-run anatomical validation on the Pass 2 result
+    final_stats = sitk.LabelShapeStatisticsImageFilter()
+    final_stats.Execute(final_mask)
+    for l in [1, 2]: # Femur and Tibia
+        if final_stats.HasLabel(l):
+            bbox = final_stats.GetBoundingBox(l)
+            x_len, y_len, z_len = bbox[3] * ct_leg.GetSpacing()[0], bbox[4] * ct_leg.GetSpacing()[1], bbox[5] * ct_leg.GetSpacing()[2]
+            aspect_ratio = z_len / max(x_len, y_len)
+            if aspect_ratio <= 1.0:
+                raise ValueError(f"Pass 2 validation failed: Bone {l} (expected femur/tibia) has low aspect ratio {aspect_ratio:.2f}. "
+                                 f"Dimensions: {x_len:.1f}x{y_len:.1f}x{z_len:.1f}mm.")
+    
     sitk.WriteImage(final_mask, output_path)
-    print(f"Saved multi-label bone mask to {output_path} "
+    print(f"Saved two-pass multi-label bone mask to {output_path} "
           f"(labels: femur=1, tibia=2, patella=3)")
 
 
@@ -264,11 +370,13 @@ if __name__ == "__main__":
     parser.add_argument("--input", required=True, help="Path to raw downloaded CT volume (NIfTI/DICOM)")
     parser.add_argument("--output", required=True, help="Path to write multi-label bone mask")
     parser.add_argument("--hu-threshold", type=int, default=DEFAULT_HU_THRESHOLD,
-                         help=f"HU cutoff for bone (default: {DEFAULT_HU_THRESHOLD})")
+                         help=f"HU cutoff for Pass 1 (seeds) (default: {DEFAULT_HU_THRESHOLD})")
+    parser.add_argument("--hu-threshold-pass2", type=int, default=200,
+                         help=f"HU cutoff for Pass 2 (boundaries) (default: 200)")
     parser.add_argument("--spacing", type=float, nargs=3, default=DEFAULT_SPACING,
                          help="Target isotropic spacing in mm, e.g. 1.0 1.0 1.0")
     parser.add_argument("--leg", type=str, choices=["right", "left"], default="right",
                          help="Which leg to isolate from a bilateral scan (default: right)")
     args = parser.parse_args()
 
-    run(args.input, args.output, args.hu_threshold, tuple(args.spacing), args.leg)
+    run(args.input, args.output, args.hu_threshold, args.hu_threshold_pass2, tuple(args.spacing), args.leg)
