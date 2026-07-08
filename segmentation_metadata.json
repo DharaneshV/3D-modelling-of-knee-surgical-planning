@@ -1,0 +1,22 @@
+{
+    "STS_006": {
+        "hu_pass1": 300,
+        "hu_pass2": 200,
+        "pass2_joint_topology": "MERGED"
+    },
+    "STS_035": {
+        "hu_pass1": 400,
+        "hu_pass2": 200,
+        "pass2_joint_topology": "MERGED"
+    },
+    "STS_043": {
+        "hu_pass1": 400,
+        "hu_pass2": 200,
+        "pass2_joint_topology": "MERGED"
+    },
+    "STS_051": {
+        "hu_pass1": 400,
+        "hu_pass2": 200,
+        "pass2_joint_topology": "MERGED"
+    }
+}
