@@ -30,40 +30,22 @@ def calculate_mri_measurements(label_path: str, output_json: str):
     }
     measurements.update(vols)
     
-    # Thickness using Distance Transform from Bone
-    # Voxel physical spacing for EDT
+    from skimage.measure import marching_cubes, mesh_surface_area
+    
+    # Thickness using Volume / (Surface Area / 2)
     sampling = [spacing[2], spacing[1], spacing[0]] # z, y, x
     
-    # Femoral Cartilage Thickness
-    femur_mask = (arr == 1)
-    if np.any(femur_mask):
-        # EDT computes distance to background (0). So we want distance to bone (1).
-        # We invert the bone mask so bone is 0 and everything else is 1.
-        edt_femur = distance_transform_edt(~femur_mask, sampling=sampling)
-        fc_mask = (arr == 2)
-        if np.any(fc_mask):
-            mean_dist = np.mean(edt_femur[fc_mask])
-            # The mean distance inside the volume is ~half the thickness
-            measurements['Femoral_Cartilage_Mean_Thickness_mm'] = float(mean_dist * 2.0)
-        else:
-            measurements['Femoral_Cartilage_Mean_Thickness_mm'] = 0.0
-            
-    # Tibial Cartilage Thickness
-    tibia_mask = (arr == 3)
-    if np.any(tibia_mask):
-        edt_tibia = distance_transform_edt(~tibia_mask, sampling=sampling)
-        
-        mtc_mask = (arr == 4)
-        if np.any(mtc_mask):
-            measurements['Medial_Tibial_Cartilage_Mean_Thickness_mm'] = float(np.mean(edt_tibia[mtc_mask]) * 2.0)
-        else:
-            measurements['Medial_Tibial_Cartilage_Mean_Thickness_mm'] = 0.0
-            
-        ltc_mask = (arr == 5)
-        if np.any(ltc_mask):
-            measurements['Lateral_Tibial_Cartilage_Mean_Thickness_mm'] = float(np.mean(edt_tibia[ltc_mask]) * 2.0)
-        else:
-            measurements['Lateral_Tibial_Cartilage_Mean_Thickness_mm'] = 0.0
+    def calc_thickness(mask, vol):
+        if not np.any(mask): return 0.0
+        padded = np.pad(mask, pad_width=1, mode='constant', constant_values=0)
+        verts, faces, normals, values = marching_cubes(padded, level=0.5, spacing=sampling)
+        sa_total = mesh_surface_area(verts, faces)
+        sa_interface = sa_total / 2.0
+        return vol / sa_interface
+
+    measurements['Femoral_Cartilage_Mean_Thickness_mm'] = float(calc_thickness(arr == 2, measurements['Femoral_Cartilage_Vol_cm3'] * 1000))
+    measurements['Medial_Tibial_Cartilage_Mean_Thickness_mm'] = float(calc_thickness(arr == 4, measurements['Medial_Tibial_Cartilage_Vol_cm3'] * 1000))
+    measurements['Lateral_Tibial_Cartilage_Mean_Thickness_mm'] = float(calc_thickness(arr == 5, measurements['Lateral_Tibial_Cartilage_Vol_cm3'] * 1000))
             
     # Save to JSON
     out_path = Path(output_json)
