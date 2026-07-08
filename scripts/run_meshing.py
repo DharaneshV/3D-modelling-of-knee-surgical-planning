@@ -24,7 +24,7 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the meshes")
     parser.add_argument("--track", type=str, choices=["ct_bone", "mri_cartilage"], required=True, 
                         help="Which anatomical track to process (dictates the label map)")
-    parser.add_argument("--decimation_target", type=float, default=0.9, help="Target reduction for decimation")
+    parser.add_argument("--decimation_target", type=float, default=0.5, help="Target reduction for decimation")
     
     args = parser.parse_args()
     
@@ -39,23 +39,38 @@ def main():
     print("Extracting meshes using vtkSurfaceNets3D...")
     raw_mesh = generate_multilabel_mesh(args.input, label_map)
     
-    # 2. Taubin Smoothing
-    print("Applying Taubin smoothing...")
-    smoothed_mesh = apply_taubin_smoothing(raw_mesh)
+    # Save the RAW multi-label mesh for reference
+    raw_mesh_path = os.path.join(args.output_dir, f"{base_name}_{args.track}_raw.obj")
+    raw_mesh.save(raw_mesh_path)
     
-    # Save the PRE-decimation mesh for Week 6 validation
-    pre_decimation_path = os.path.join(args.output_dir, f"{base_name}_{args.track}_smoothed_pre_decimation.obj")
-    smoothed_mesh.save(pre_decimation_path)
-    print(f"Saved pre-decimation mesh to {pre_decimation_path}")
-    
-    # 3. Decimation
-    print(f"Decimating mesh (target reduction {args.decimation_target})...")
-    decimated_mesh = decimate_mesh(smoothed_mesh, target_reduction=args.decimation_target)
-    
-    # Save the POST-decimation mesh for AR delivery
-    post_decimation_path = os.path.join(args.output_dir, f"{base_name}_{args.track}_final.obj")
-    decimated_mesh.save(post_decimation_path)
-    print(f"Saved final decimated mesh to {post_decimation_path}")
-    
+    # Extract individual labels, then smooth, then decimate
+    import pyvista as pv
+    import numpy as np
+    for label_name, label_id in label_map.items():
+        if 'BoundaryLabels' not in raw_mesh.cell_data:
+            print(f"Warning: BoundaryLabels not found in raw mesh for {label_name}. Skipping extraction.")
+            continue
+            
+        labels = raw_mesh.cell_data['BoundaryLabels']
+        mask = (labels[:, 0] == label_id) | (labels[:, 1] == label_id)
+        
+        # extract cells for this label
+        sub_mesh = raw_mesh.extract_cells(mask)
+        # extract_surface to get clean PolyData
+        surf = sub_mesh.extract_surface(algorithm='dataset_surface')
+        surf = surf.clean()
+        
+        # apply smoothing
+        print(f"Smoothing {label_name}...")
+        smoothed_comp = apply_taubin_smoothing(surf)
+        
+        # apply decimation
+        print(f"Decimating {label_name}...")
+        decimated_comp = decimate_mesh(smoothed_comp, target_reduction=args.decimation_target)
+        
+        comp_path = os.path.join(args.output_dir, f"{label_name}_decimated.obj")
+        decimated_comp.save(comp_path)
+        print(f"Saved individual decimated mesh {label_name} to {comp_path}")
+        
 if __name__ == "__main__":
     main()

@@ -57,38 +57,45 @@ def main():
     ]
     cmap_mask = ListedColormap(colors)
 
-    # Pick center slices for each view
+    # Create Maximum Intensity Projections (MIP) for the CT volume
+    ct_mip_z = np.max(ct_display, axis=0)
+    ct_mip_y = np.max(ct_display, axis=1)
+    ct_mip_x = np.max(ct_display, axis=2)
+
+    # For the mask, we want to show the labels. 
+    # Taking a max over the labels can arbitrarily favor higher labels.
+    # A better approach is to take the MIP of each label independently, 
+    # then combine them, but for quick 2D visualization, we can just take the max
+    # since labels are 1, 2, 3 and we don't have overlapping bone structures along the projection
+    # unless there's severe deformity. However, to ensure tibia (2) doesn't just overwrite femur (1),
+    # we can create independent MIPs per label and combine them.
+    def get_label_mip(mask, label, axis):
+        return np.max((mask == label).astype(np.uint8), axis=axis)
+        
+    mask_mip_z = np.zeros_like(ct_mip_z, dtype=np.uint16)
+    mask_mip_y = np.zeros_like(ct_mip_y, dtype=np.uint16)
+    mask_mip_x = np.zeros_like(ct_mip_x, dtype=np.uint16)
+    
+    for l in [1, 2, 3]:
+        mask_mip_z[get_label_mip(mask_arr, l, 0) > 0] = l
+        mask_mip_y[get_label_mip(mask_arr, l, 1) > 0] = l
+        mask_mip_x[get_label_mip(mask_arr, l, 2) > 0] = l
+
     z_mid = mask_arr.shape[0] // 2
     y_mid = mask_arr.shape[1] // 2
     x_mid = mask_arr.shape[2] // 2
 
-    # Find slices with the most mask content for better visualization
-    z_counts = np.array([np.count_nonzero(mask_arr[z, :, :]) for z in range(mask_arr.shape[0])])
-    y_counts = np.array([np.count_nonzero(mask_arr[:, y, :]) for y in range(mask_arr.shape[1])])
-    x_counts = np.array([np.count_nonzero(mask_arr[:, :, x]) for x in range(mask_arr.shape[2])])
-
-    z_best = int(np.argmax(z_counts)) if z_counts.max() > 0 else z_mid
-    y_best = int(np.argmax(y_counts)) if y_counts.max() > 0 else y_mid
-    x_best = int(np.argmax(x_counts)) if x_counts.max() > 0 else x_mid
-
-    print(f"Best axial slice: z={z_best} ({z_counts[z_best]} mask voxels)")
-    print(f"Best coronal slice: y={y_best} ({y_counts[y_best]} mask voxels)")
-    print(f"Best sagittal slice: x={x_best} ({x_counts[x_best]} mask voxels)")
-
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12), facecolor='#0a0e1a')
-    fig.suptitle('Bone Segmentation Results — HU Thresholding',
-                 fontsize=16, color='white', fontweight='bold', y=0.98)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), facecolor='#0a0e1a')
+    fig.suptitle('Bone Segmentation Results — MIP (Maximum Intensity Projection)',
+                 fontsize=16, color='white', fontweight='bold', y=1.05)
 
     views = [
-        ("Axial (best)", ct_display[z_best, :, :], mask_arr[z_best, :, :]),
-        ("Coronal (best)", ct_display[:, y_best, :], mask_arr[:, y_best, :]),
-        ("Sagittal (best)", ct_display[:, :, x_best], mask_arr[:, :, x_best]),
-        ("Axial (center)", ct_display[z_mid, :, :], mask_arr[z_mid, :, :]),
-        ("Coronal (center)", ct_display[:, y_mid, :], mask_arr[:, y_mid, :]),
-        ("Sagittal (center)", ct_display[:, :, x_mid], mask_arr[:, :, x_mid]),
+        ("Axial MIP", ct_mip_z, mask_mip_z),
+        ("Coronal MIP", ct_mip_y, mask_mip_y),
+        ("Sagittal MIP", ct_mip_x, mask_mip_x),
     ]
 
-    for ax, (title, ct_slice, mask_slice) in zip(axes.flat, views):
+    for ax, (title, ct_slice, mask_slice) in zip(axes, views):
         origin = 'lower' if ('Coronal' in title or 'Sagittal' in title) else 'upper'
         ax.imshow(ct_slice, cmap='gray', aspect='auto', origin=origin)
         # Only overlay where mask > 0

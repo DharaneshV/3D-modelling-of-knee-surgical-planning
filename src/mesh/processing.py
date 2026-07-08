@@ -17,7 +17,7 @@ def apply_taubin_smoothing(mesh: pv.PolyData, n_iter: int = 20, pass_band: float
     """
     return mesh.smooth_taubin(n_iter=n_iter, pass_band=pass_band)
 
-def decimate_mesh(mesh: pv.PolyData, target_reduction: float = 0.9) -> pv.PolyData:
+def decimate_mesh(mesh: pv.PolyData, target_reduction: float = 0.5) -> pv.PolyData:
     """
     Reduce the polygon count of the mesh for real-time AR/VR rendering.
     Uses decimate_pro to preserve topological structure, which is critical
@@ -25,11 +25,18 @@ def decimate_mesh(mesh: pv.PolyData, target_reduction: float = 0.9) -> pv.PolyDa
     
     Args:
         mesh: PyVista PolyData mesh.
-        target_reduction: Target reduction fraction (e.g., 0.9 means 90% of triangles are removed).
+        target_reduction: Target reduction fraction (e.g., 0.5 means 50% of triangles are removed).
         
     Returns:
         Decimated PyVista PolyData mesh.
     """
     # decimate_pro uses the vtkDecimatePro algorithm, which preserves topology 
     # and gives better control over sharp edges compared to standard decimate.
-    return mesh.decimate_pro(target_reduction, feature_angle=60, preserve_topology=True)
+    # We turn off boundary_vertex_deletion to prevent holes from forming at the capped ends
+    # and use a less aggressive default reduction (50% instead of 90%).
+    return mesh.decimate_pro(
+        target_reduction, 
+        feature_angle=60, 
+        preserve_topology=True, 
+        boundary_vertex_deletion=False
+    )

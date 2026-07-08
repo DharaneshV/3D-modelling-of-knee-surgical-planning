@@ -1,13 +1,16 @@
 import os
 import subprocess
 
+import json
+
 cases = [
     "STS_006",
     "STS_035",
     "STS_043",
-    "STS_047",
     "STS_051"
 ]
+
+metadata = {}
 
 python_exe = r".\venv\Scripts\python.exe"
 
@@ -26,6 +29,19 @@ for case in cases:
         result = subprocess.run(seg_cmd, capture_output=True, text=True)
         if result.returncode == 0:
             print(f"  Success with HU {hu}!")
+            
+            # Extract PASS2_STATUS from stdout
+            status = "UNKNOWN"
+            for line in result.stdout.split('\n'):
+                if line.startswith("PASS2_STATUS:"):
+                    status = line.split(":")[-1].strip()
+            
+            metadata[case] = {
+                "hu_pass1": hu,
+                "hu_pass2": 200,
+                "pass2_joint_topology": status
+            }
+            
             success = True
             break
         else:
@@ -39,4 +55,7 @@ for case in cases:
     viz_cmd = [python_exe, "scripts/visualize_segmentation.py", "--ct", input_ct, "--mask", output_mask, "--output", preview_img]
     subprocess.run(viz_cmd, check=True)
     
-print("\nAll cases processed successfully!")
+with open("segmentation_metadata.json", "w") as f:
+    json.dump(metadata, f, indent=4)
+
+print("\nAll cases processed successfully! Metadata saved to segmentation_metadata.json")

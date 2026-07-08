@@ -154,7 +154,15 @@ def morphological_cleanup(
 
     # Fill holes (marrow cavity)
     if fill_holes:
-        opened = sitk.BinaryFillhole(opened)
+        # Fill holes per-slice (2D) to close the medullary canal
+        arr = sitk.GetArrayFromImage(opened)
+        filled_arr = np.zeros_like(arr)
+        for z in range(arr.shape[0]):
+            slice_img = sitk.GetImageFromArray(arr[z].astype(np.uint8))
+            filled_arr[z] = sitk.GetArrayFromImage(sitk.BinaryFillhole(slice_img))
+        filled_img = sitk.GetImageFromArray(filled_arr)
+        filled_img.CopyInformation(opened)
+        opened = filled_img
 
     return opened
 
