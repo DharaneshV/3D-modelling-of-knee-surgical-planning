@@ -95,25 +95,12 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
             {"file": "patella_decimated.obj", "label": "Patella", "color": "#3498db"}
         ]
         
-        # CT scans from different machines often require different HU thresholds.
-        # We loop through reasonable thresholds until one passes the anatomical validation.
-        hu_thresholds_to_try = [300, 400, 200, 500, 600, 250, 350]
-        success = False
-        last_error = ""
+        update_status(task_id, "segmenting", modality=modality, reason="Running TotalSegmentator (femur, tibia, patella)...")
+        seg_cmd = [python_exe, "src/segmentation/run_ct_segmentation.py", "--input", file_path, "--output", mask_output]
+        result = subprocess.run(seg_cmd, capture_output=True, text=True)
         
-        for hu in hu_thresholds_to_try:
-            update_status(task_id, "segmenting", modality=modality, reason=f"Trying HU threshold {hu}...")
-            seg_cmd = [python_exe, "scripts/bone_segmentation.py", "--input", file_path, "--output", mask_output, "--hu-threshold", str(hu)]
-            result = subprocess.run(seg_cmd, capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                success = True
-                break
-            else:
-                last_error = result.stderr.strip()
-                
-        if not success:
-            raise Exception(f"Segmentation script failed after trying all HU thresholds. Last error: {last_error}")
+        if result.returncode != 0:
+            raise Exception(f"TotalSegmentator script failed. Error: {result.stderr.strip()}")
             
     else:
         # Run MRI pipeline

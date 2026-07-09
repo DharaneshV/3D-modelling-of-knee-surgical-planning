@@ -34,6 +34,9 @@ def decimate_mesh(mesh: pv.PolyData, target_reduction: float = 0.5) -> pv.PolyDa
     # and gives better control over sharp edges compared to standard decimate.
     # We turn off boundary_vertex_deletion to prevent holes from forming at the capped ends
     # and use a less aggressive default reduction (50% instead of 90%).
+    # Ensure mesh is fully triangulated, as decimate_pro requires it
+    mesh = mesh.triangulate()
+    
     return mesh.decimate_pro(
         target_reduction, 
         feature_angle=60, 

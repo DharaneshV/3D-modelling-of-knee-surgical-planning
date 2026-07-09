@@ -164,6 +164,10 @@ cmts.txt
 meshes/
 uploads/
 tasks/
+outputs/
 *.obj
 *.png
 temp_*/
+test_*.py
+test_ct.nii.gz
+test_correlation.py

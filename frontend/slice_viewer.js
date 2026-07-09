@@ -12,11 +12,14 @@ const wcLabel = document.getElementById('wc-label');
 const wwLabel = document.getElementById('ww-label');
 const planeBtns = document.querySelectorAll('.plane-btn');
 
+// Use the same API base as script.js
+const SLICE_API_BASE = 'http://localhost:8000/api';
+
 function initSliceViewer(taskId) {
     currentTaskId = taskId;
     
     // Fetch volume info
-    fetch(`/api/volume-info/${taskId}`)
+    fetch(`${SLICE_API_BASE}/volume-info/${taskId}`)
         .then(res => {
             if (!res.ok) throw new Error("Volume info not found");
             return res.json();
@@ -56,7 +59,7 @@ function updateSliceImage() {
     const wc = wcSlider.value;
     const ww = wwSlider.value;
     
-    let url = `/api/slices/${currentTaskId}/${currentPlane}/${index}`;
+    let url = `${SLICE_API_BASE}/slices/${currentTaskId}/${currentPlane}/${index}`;
     // If not default (0), append query params
     if (wc != 0) url += `?wc=${wc}&ww=${ww}`;
     else if (ww != 1000) url += `?ww=${ww}`; // Just in case

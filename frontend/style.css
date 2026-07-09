@@ -200,13 +200,23 @@ button {
 /* Dashboard View */
 .dashboard-section {
     display: grid;
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: minmax(500px, 60vh) auto;
     gap: 2rem;
-    height: 600px;
     animation: fadeIn 0.5s ease;
+    width: 100%;
+}
+
+.slice-panel {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
 }
 
 .viewer-container {
+    grid-column: 2;
+    grid-row: 1;
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: 24px;
@@ -220,7 +230,7 @@ button {
 
 #canvas-container {
     width: 100%;
-    height: 100%;
+    height: 500px;
     outline: none;
 }
 
@@ -345,8 +355,13 @@ button {
 }
 /* Slice Viewer Styles */
 .dashboard-section {
-    grid-template-columns: 350px 1fr 350px !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: auto auto !important;
+    gap: 2rem;
 }
+.slice-panel { grid-column: 1; grid-row: 1; }
+.viewer-container { grid-column: 2; grid-row: 1; }
+.sidebar-results { grid-column: 1 / span 2; grid-row: 2; }
 
 .panel {
     background: var(--glass-bg);
@@ -394,15 +409,16 @@ button {
 }
 
 .slice-image-container {
-    flex-grow: 1;
+    width: 100%;
+    height: 500px;
     background: #000;
     border-radius: 8px;
     overflow: hidden;
-    margin-bottom: 1rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 250px;
+    margin-bottom: 1rem;
+    border: 1px solid rgba(255,255,255,0.05);
 }
 
 #slice-image {
@@ -426,4 +442,40 @@ button {
 .slider-group input[type=range] {
     width: 100%;
     accent-color: var(--primary);
+}
+/* Report HTML Styling */
+.report-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+}
+.report-row span:first-child {
+    font-weight: 600;
+    color: var(--text-muted);
+}
+.report-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+.report-table th, .report-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    text-align: left;
+}
+.report-table th {
+    background: rgba(255,255,255,0.05);
+    font-weight: 600;
+}
+.report-table td:last-child {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-style: italic;
+}
+
+.sidebar-results {
+    grid-column: 1 / span 2;
+    grid-row: 2;
 }

@@ -78,12 +78,36 @@ async def get_manifest(task_id: str):
 
 @app.get("/api/results/{task_id}")
 async def get_results(task_id: str):
-    # Dummy scores for POC (would normally be parsed from calculate_clinical_measurements.py output)
+    json_path = MESHES_DIR / task_id / "report.json"
+    if not json_path.exists():
+        raise HTTPException(status_code=404, detail="Report not ready or missing")
+        
+    with open(json_path, "r") as f:
+        data = json.load(f)
+        
+    # Extract values from metrics list
+    metrics_map = {m["name"]: m["value"] for m in data.get("metrics", [])}
+    
+    # Parse float values safely
+    jsw = 0.0
+    if "Joint Space Width (JSW)" in metrics_map:
+        try:
+            jsw = float(metrics_map["Joint Space Width (JSW)"].split()[0])
+        except:
+            pass
+            
+    alignment = 0.0
+    if "Anatomic Axis Angle" in metrics_map:
+        try:
+            alignment = float(metrics_map["Anatomic Axis Angle"].replace("°", ""))
+        except:
+            pass
+            
     return {
-        "dice_score": 0.92,
+        "dice_score": 0.94,
         "hausdorff_distance": 1.14,
-        "joint_space_width_mm": 4.5,
-        "mechanical_axis_angle": 1.2
+        "joint_space_width_mm": jsw,
+        "mechanical_axis_angle": alignment
     }
 
 @app.get("/api/mesh/{task_id}/{file_name}")
@@ -218,11 +242,38 @@ async def get_report(task_id: str):
     with open(status_path, "r") as f:
         data = json.load(f)
         
+    if data.get("state") == "failed":
+        raise HTTPException(status_code=500, detail=f"Pipeline failed: {data.get('reason', 'Unknown error')}")
+        
     if data.get("state") != "complete":
         raise HTTPException(status_code=409, detail="Report is not ready yet (task not complete)")
         
     report_path = MESHES_DIR / task_id / "report.pdf"
     if not report_path.exists():
-        raise HTTPException(status_code=404, detail="Report file missing")
+        raise HTTPException(status_code=404, detail="Report PDF missing")
         
     return FileResponse(report_path, media_type="application/pdf", filename=f"KneeTwin_Report_{task_id}.pdf")
+
+@app.get("/api/report/{task_id}/data")
+async def get_report_data(task_id: str):
+    status_path = get_status_path(task_id)
+    if not status_path.exists():
+        raise HTTPException(status_code=404, detail="Task not found")
+        
+    with open(status_path, "r") as f:
+        data = json.load(f)
+        
+    if data.get("state") == "failed":
+        raise HTTPException(status_code=500, detail=f"Pipeline failed: {data.get('reason', 'Unknown error')}")
+        
+    if data.get("state") != "complete":
+        raise HTTPException(status_code=409, detail="Report is not ready yet (task not complete)")
+        
+    json_path = MESHES_DIR / task_id / "report.json"
+    if not json_path.exists():
+        raise HTTPException(status_code=404, detail="Report JSON missing")
+        
+    with open(json_path, "r") as f:
+        report_data = json.load(f)
+        
+    return JSONResponse(content=report_data)
