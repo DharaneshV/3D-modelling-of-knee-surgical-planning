@@ -160,3 +160,10 @@ node_modules/
 package-lock.json
 cmts.txt
 
+# Automated pipeline outputs
+meshes/
+uploads/
+tasks/
+*.obj
+*.png
+temp_*/
