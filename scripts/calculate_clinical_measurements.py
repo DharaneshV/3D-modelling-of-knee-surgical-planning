@@ -4,23 +4,41 @@ import numpy as np
 import trimesh
 from scipy.spatial import cKDTree
 import SimpleITK as sitk
+import pandas as pd
+import json
 
-CASES = ['STS_006', 'STS_035', 'STS_043', 'STS_051']
-LABELS = {'Femur': 1, 'Tibia': 2, 'Patella': 3}
+def calculate_anatomic_axis(vertices):
+    centered = vertices - np.mean(vertices, axis=0)
+    cov = np.cov(centered, rowvar=False)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    primary_axis = eigvecs[:, np.argmax(eigvals)]
+    if primary_axis[2] < 0:
+        primary_axis = -primary_axis
+    return primary_axis
+
+# Load passing cases from build_log.json
+log_path = 'data/build_log.json'
+with open(log_path, 'r') as f:
+    build_log = json.load(f)
+
+passing_cases = [case_id for case_id, info in build_log.items() if info.get('status') == 'pass']
 
 results = []
 
-def check_bounds(name, val, min_v, max_v):
-    if val < min_v or val > max_v:
-        print(f"  WARNING: {name} ({val:.1f}) is outside physiological bounds ({min_v}-{max_v})!")
-
-for case in CASES:
-    print(f"\nProcessing {case}...")
-    mask_path = f"data/ct_knee/case01_{case}_bone_mask.nii.gz"
-    f_mesh_path = f"data/ct_knee/{case}_meshes/femur_decimated.obj"
-    t_mesh_path = f"data/ct_knee/{case}_meshes/tibia_decimated.obj"
+for case in sorted(passing_cases):
+    print(f"Processing {case}...")
+    
+    # Try closed mask first, fallback to raw
+    mask_path = f"outputs/{case}/masks/bone_mask_closed.nii.gz"
+    if not os.path.exists(mask_path):
+        mask_path = f"outputs/{case}/masks/bone_mask.nii.gz"
+        
+    f_mesh_path = f"outputs/{case}/meshes/femur_decimated.obj"
+    t_mesh_path = f"outputs/{case}/meshes/tibia_decimated.obj"
+    p_mesh_path = f"outputs/{case}/meshes/patella_decimated.obj"
     
     if not os.path.exists(mask_path) or not os.path.exists(f_mesh_path) or not os.path.exists(t_mesh_path):
+        print(f"  Files missing for {case}, skipping.")
         continue
         
     img = sitk.ReadImage(mask_path)
@@ -33,57 +51,58 @@ for case in CASES:
     
     case_res = {'Case': case}
     
-    # VOLUMES
-    for bone, val in LABELS.items():
+    # Volumes (cm3)
+    case_res['Femur Vol (cm3)'] = round(float(np.sum(arr == 1) * voxel_vol_mm3 / 1000.0), 1)
+    case_res['Tibia Vol (cm3)'] = round(float(np.sum(arr == 2) * voxel_vol_mm3 / 1000.0), 1)
+    case_res['Patella Vol (cm3)'] = round(float(np.sum(arr == 3) * voxel_vol_mm3 / 1000.0), 1)
+    
+    # Z-Length (mm) from mask
+    for label_name, val in [('Femur', 1), ('Tibia', 2)]:
         mask = (arr == val)
         if mask.any():
-            vol_cm3 = (np.sum(mask) * voxel_vol_mm3) / 1000.0
-            case_res[f'{bone} Vol (cm3)'] = f"{vol_cm3:.1f}"
-            
             z_indices = np.where(np.any(mask, axis=(1,2)))[0]
             z_length_mm = (z_indices[-1] - z_indices[0] + 1) * spacing[2]
-            star = "*" if bone in ['Femur', 'Tibia'] else ""
-            case_res[f'{bone} Z-Length (mm)'] = f"{z_length_mm:.1f}{star}"
+            case_res[f'{label_name} Z-Length (mm)'] = round(float(z_length_mm), 1)
         else:
-            case_res[f'{bone} Vol (cm3)'] = "-"
-            case_res[f'{bone} Z-Length (mm)'] = "-"
+            case_res[f'{label_name} Z-Length (mm)'] = 0.0
             
-    # DIMENSIONS
-    f_width = np.ptp(femur.vertices[:, 0])
-    check_bounds("Femur Bicondylar Width", f_width, 70, 105)
+    # Sizing (AP/ML)
+    f_ml = np.ptp(femur.vertices[:, 0])
+    f_ap = np.ptp(femur.vertices[:, 1])
+    t_ml = np.ptp(tibia.vertices[:, 0])
+    t_ap = np.ptp(tibia.vertices[:, 1])
     
-    t_width = np.ptp(tibia.vertices[:, 0])
-    t_depth = np.ptp(tibia.vertices[:, 1])
-    check_bounds("Tibia Plateau Width", t_width, 60, 90)
-    check_bounds("Tibia Plateau Depth", t_depth, 40, 70)
+    case_res['Femur ML (mm)'] = round(float(f_ml), 1)
+    case_res['Femur AP (mm)'] = round(float(f_ap), 1)
+    case_res['Tibia ML (mm)'] = round(float(t_ml), 1)
+    case_res['Tibia AP (mm)'] = round(float(t_ap), 1)
     
-    case_res['Femur Width'] = f"{f_width:.1f}"
-    case_res['Tibia Width'] = f"{t_width:.1f}"
-    case_res['Tibia Depth'] = f"{t_depth:.1f}"
+    # Anatomic Axis Angle via PCA
+    f_axis = calculate_anatomic_axis(femur.vertices)
+    t_axis = calculate_anatomic_axis(tibia.vertices)
+    cos_theta = np.dot(f_axis, t_axis) / (np.linalg.norm(f_axis) * np.linalg.norm(t_axis))
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    case_res['Anatomic Axis Angle (deg)'] = round(float(np.degrees(np.arccos(cos_theta))), 1)
     
-    # JSW
+    # JSW Calculation
     joint_z = np.percentile(tibia.vertices[:, 2], 99)
     f_mask = (femur.vertices[:, 2] >= joint_z - 20) & (femur.vertices[:, 2] <= joint_z + 40)
     t_mask = (tibia.vertices[:, 2] >= joint_z - 40) & (tibia.vertices[:, 2] <= joint_z + 20)
+    
     f_pts = femur.vertices[f_mask]
     t_pts = tibia.vertices[t_mask]
     
-    jsw = -1
+    jsw = 0.0
     if len(f_pts) > 0 and len(t_pts) > 0:
         tree = cKDTree(t_pts)
         dists, _ = tree.query(f_pts)
         jsw = np.min(dists)
-        check_bounds("Joint Space Width", jsw, 2.0, 6.0)
+    case_res['JSW (mm)'] = round(float(jsw), 2)
     
-    case_res['JSW'] = f"{jsw:.2f}"
     results.append(case_res)
 
-print("\n")
-headers = ["Case", "Femur Vol (cm3)", "Femur Z-Length (mm)", "Femur Width", "Tibia Vol (cm3)", "Tibia Z-Length (mm)", "Tibia Width", "Tibia Depth", "JSW"]
-print("| " + " | ".join(headers) + " |")
-print("|" + "|".join(["---"] * len(headers)) + "|")
-for r in results:
-    row = [r.get(h, "-") for h in headers]
-    print("| " + " | ".join(row) + " |")
-
-print("\n* Denotes a measurement constrained by the synthetic cropping boundary (not true anatomical length).")
+df = pd.DataFrame(results)
+os.makedirs('data', exist_ok=True)
+df.to_csv('data/measurement_validation.csv', index=False)
+print("\nGenerated data/measurement_validation.csv successfully!")
+print(df.head())

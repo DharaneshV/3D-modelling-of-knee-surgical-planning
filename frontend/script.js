@@ -140,15 +140,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.state === 'segmenting') {
                     processingText.textContent = 'Segmenting Scan Data...';
                     progressBar.style.width = '40%';
+                    document.getElementById('report-placeholder-text').textContent = 'Segmenting scan data...';
                 } else if (data.state === 'meshing') {
                     processingText.textContent = 'Generating 3D Models...';
                     progressBar.style.width = '70%';
+                    document.getElementById('report-placeholder-text').textContent = 'Generating 3D models...';
                 } else if (data.state === 'generating_report') {
                     processingText.textContent = 'Generating PDF Report...';
                     progressBar.style.width = '85%';
+                    document.getElementById('report-placeholder-text').textContent = 'Generating report...';
                 } else if (data.state === 'failed') {
                     clearInterval(interval);
                     showError(data.reason || 'Pipeline failed');
+                    // Show failure in report panel as well
+                    document.getElementById('report-placeholder-text').textContent = `Pipeline Failed: ${data.reason}`;
+                    document.getElementById('report-placeholder-text').style.color = 'var(--danger)';
                 } else if (data.state === 'complete') {
                     clearInterval(interval);
                     progressBar.style.width = '100%';
@@ -176,15 +182,42 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadDashboard(taskId) {
         processingOverlay.style.display = 'none';
         
-        // Show report
-        const reportContainer = document.getElementById('report-container');
-        const reportIframe = document.getElementById('report-iframe');
-        const downloadBtn = document.getElementById('download-report-btn');
-        
-        reportIframe.src = `${API_BASE}/report/${taskId}/pdf`;
-        reportContainer.style.display = 'block';
-        downloadBtn.href = `${API_BASE}/report/${taskId}/pdf`;
-        downloadBtn.style.display = 'block';
+        try {
+            // Fetch Native Report Data
+            const res = await fetch(`${API_BASE}/report/${taskId}/data`);
+            const data = await res.json();
+            
+            // Populate Header
+            document.getElementById('r-task-id').textContent = data.task_id;
+            document.getElementById('r-scan-date').textContent = data.scan_date;
+            document.getElementById('r-modality').textContent = data.modality;
+            document.getElementById('r-laterality').textContent = data.laterality;
+            
+            // Populate Metrics
+            const tbody = document.getElementById('r-metrics-body');
+            tbody.innerHTML = '';
+            data.metrics.forEach(m => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${m.name}</td><td>${m.value}</td><td>${m.caveat}</td>`;
+                tbody.appendChild(tr);
+            });
+            
+            // Populate Impression
+            document.getElementById('r-impression').textContent = data.impression;
+            
+            // Transition UI
+            document.getElementById('report-placeholder').style.display = 'none';
+            document.getElementById('report-container').style.display = 'block';
+            
+            const downloadBtn = document.getElementById('download-report-btn');
+            downloadBtn.href = `${API_BASE}/report/${taskId}/pdf`;
+            downloadBtn.style.display = 'block';
+            
+        } catch (e) {
+            console.error("Failed to load report data", e);
+            document.getElementById('report-placeholder-text').textContent = 'Failed to load report data';
+            document.getElementById('report-placeholder-text').style.color = 'var(--danger)';
+        }
         
         // Init 3D Viewer
         if (window.initViewer) {
