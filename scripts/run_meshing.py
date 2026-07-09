@@ -1,5 +1,10 @@
 import argparse
 import os
+import sys
+from pathlib import Path
+
+# Ensure the root directory is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.mesh.surface_nets import generate_multilabel_mesh
 from src.mesh.processing import apply_taubin_smoothing, decimate_mesh
