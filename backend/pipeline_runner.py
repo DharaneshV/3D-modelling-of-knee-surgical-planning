@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import subprocess
 import threading
@@ -74,25 +75,49 @@ def run_pipeline_async(task_id: str, file_path: str):
     threading.Thread(target=_run, daemon=True).start()
 
 def _execute_pipeline(task_id: str, file_path: str, modality: str):
+    # Ensure file_path is absolute
+    file_path = str(Path(file_path).absolute())
+    
     task_mesh_dir = MESHES_DIR / task_id
     task_mesh_dir.mkdir(exist_ok=True)
     
-    mask_output = str(task_mesh_dir / f"{task_id}_mask.nii.gz")
-    python_exe = sys.executable if "sys" in globals() else "python"
+    mask_output = str((task_mesh_dir / f"{task_id}_mask.nii.gz").absolute())
+    
+    # Use the active environment's python executable
+    python_exe = sys.executable
     
     # 2. Segmenting
     if modality == "CT":
-        # Run CT pipeline
-        seg_cmd = ["python", "scripts/bone_segmentation.py", "--input", file_path, "--output", mask_output]
         track = "ct_bone"
         expected_parts = [
             {"file": "femur_decimated.obj", "label": "Femur", "color": "#e74c3c"},
             {"file": "tibia_decimated.obj", "label": "Tibia", "color": "#2ecc71"},
             {"file": "patella_decimated.obj", "label": "Patella", "color": "#3498db"}
         ]
+        
+        # CT scans from different machines often require different HU thresholds.
+        # We loop through reasonable thresholds until one passes the anatomical validation.
+        hu_thresholds_to_try = [300, 400, 200, 500, 600, 250, 350]
+        success = False
+        last_error = ""
+        
+        for hu in hu_thresholds_to_try:
+            update_status(task_id, "segmenting", modality=modality, reason=f"Trying HU threshold {hu}...")
+            seg_cmd = [python_exe, "scripts/bone_segmentation.py", "--input", file_path, "--output", mask_output, "--hu-threshold", str(hu)]
+            result = subprocess.run(seg_cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                success = True
+                break
+            else:
+                last_error = result.stderr.strip()
+                
+        if not success:
+            raise Exception(f"Segmentation script failed after trying all HU thresholds. Last error: {last_error}")
+            
     else:
         # Run MRI pipeline
-        seg_cmd = ["python", "src/segmentation/run_mri_segmentation.py", "--input", file_path, "--output", mask_output]
+        seg_cmd = [python_exe, "src/segmentation/run_mri_segmentation.py", "--input", file_path, "--output", mask_output]
         track = "mri_cartilage"
         expected_parts = [
             {"file": "femoral_cartilage_decimated.obj", "label": "Femoral Cartilage", "color": "#e74c3c"},
@@ -100,27 +125,19 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
             {"file": "lateral_tibial_cartilage_decimated.obj", "label": "Lateral Tibial Cartilage", "color": "#3498db"}
         ]
         
-    result = subprocess.run(seg_cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        # For POC, if script fails, let's fake a success for demonstration if the real ones aren't setup
-        # But per requirements: "A subprocess returning exit code 0 is not sufficient evidence of success... verify real output"
-        # We will strictly fail if the output is missing.
-        pass
+        result = subprocess.run(seg_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"Segmentation script failed: {result.stderr.strip()}")
 
     if not os.path.exists(mask_output):
-        # As a fallback for the POC demo, let's create a dummy mask if the real pipeline isn't fully installed/working on this environment
-        import SimpleITK as sitk
-        import numpy as np
-        # Create a dummy image
-        arr = np.zeros((50, 50, 50), dtype=np.uint8)
-        arr[20:30, 20:30, 20:30] = 1 # dummy femur
-        dummy = sitk.GetImageFromArray(arr)
-        sitk.WriteImage(dummy, mask_output)
+        raise Exception(f"Segmentation returned 0 but mask file {mask_output} is missing. STDOUT: {result.stdout} STDERR: {result.stderr}")
 
     # 3. Meshing
     update_status(task_id, "meshing", modality=modality)
-    mesh_cmd = ["python", "scripts/run_meshing.py", "--input", mask_output, "--output_dir", str(task_mesh_dir), "--track", track]
-    subprocess.run(mesh_cmd, capture_output=True, text=True)
+    mesh_cmd = [python_exe, "scripts/run_meshing.py", "--input", mask_output, "--output_dir", str(task_mesh_dir), "--track", track]
+    result_mesh = subprocess.run(mesh_cmd, capture_output=True, text=True)
+    if result_mesh.returncode != 0:
+        raise Exception(f"Meshing script failed: {result_mesh.stderr.strip()}")
     
     # Check outputs and generate manifest
     manifest = {
@@ -134,15 +151,14 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     for part in expected_parts:
         part_path = task_mesh_dir / part["file"]
         if not part_path.exists() or part_path.stat().st_size == 0:
-            # Fallback for POC if meshing script fails - generate dummy OBJ
-            with open(part_path, "w") as f:
-                f.write("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n") # simple triangle
+            missing_files.append(part["file"])
+            continue
                 
         # Validate vertex count (naive check for non-empty OBJ)
         with open(part_path, "r") as f:
             content = f.read()
             if "v " not in content:
-                missing_files.append(part["file"])
+                missing_files.append(part["file"] + " (invalid format, missing vertices)")
                 continue
                 
         manifest["parts"].append(part)
@@ -155,3 +171,4 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         json.dump(manifest, f, indent=4)
         
     update_status(task_id, "complete", modality=modality, manifest=manifest)
+

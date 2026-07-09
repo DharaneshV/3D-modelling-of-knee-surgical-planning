@@ -68,6 +68,13 @@ def crop_to_leg(image, side="right"):
     logger.info(f"Cropping volume to {side} leg... X-axis direction cosine: {direction[0]:.4f}")
     
     size = image.GetSize()
+    spacing = image.GetSpacing()
+    
+    # If the physical width is less than 300mm, it's likely already cropped to a single leg
+    if size[0] * spacing[0] < 300:
+        logger.info(f"Image width is {size[0] * spacing[0]:.1f}mm (<300mm). Assuming already cropped to a single leg.")
+        return image
+        
     mid_x = size[0] // 2
 
     # In standard LPS, X goes Right to Left. If direction[0] > 0, lower X index is Right.
