@@ -76,33 +76,50 @@
                 </div>
             </section>
             
-            <!-- Dashboard View (Viewer + Scores) -->
+            <!-- Dashboard View (3 Panels) -->
             <section class="dashboard-section" id="dashboard-section" style="display: none;">
-                <div class="viewer-container">
+                <!-- Panel 1: Original Scan -->
+                <div class="panel slice-panel">
+                    <h3>Original Scan</h3>
+                    <div class="plane-tabs">
+                        <button class="plane-btn active" data-plane="axial">Axial</button>
+                        <button class="plane-btn" data-plane="coronal">Coronal</button>
+                        <button class="plane-btn" data-plane="sagittal">Sagittal</button>
+                    </div>
+                    <div class="slice-image-container">
+                        <img id="slice-image" src="" alt="Scan Slice">
+                    </div>
+                    <div class="slider-group">
+                        <label>Slice: <span id="slice-label">0/0</span></label>
+                        <input type="range" id="slice-slider" min="0" max="100" value="50">
+                    </div>
+                    <div class="slider-group">
+                        <label>Window Center (Brightness): <span id="wc-label">Auto</span></label>
+                        <input type="range" id="wc-slider" min="-1000" max="3000" value="0">
+                    </div>
+                    <div class="slider-group">
+                        <label>Window Width (Contrast): <span id="ww-label">Auto</span></label>
+                        <input type="range" id="ww-slider" min="1" max="4000" value="1000">
+                    </div>
+                </div>
+
+                <!-- Panel 2: 3D Segmentation Model -->
+                <div class="panel viewer-container">
+                    <h3>3D Segmentation Model</h3>
                     <div class="badge" id="modality-badge-dashboard">CT Scan</div>
                     <div id="canvas-container"></div>
                 </div>
                 
-                <aside class="sidebar-results">
-                    <h3>Clinical Scores</h3>
-                    <div class="score-card">
-                        <div class="score-label">Dice Score (Avg)</div>
-                        <div class="score-value" id="score-dice">--</div>
+                <!-- Panel 3: Report -->
+                <aside class="panel sidebar-results" style="display: flex; flex-direction: column;">
+                    <h3>Clinical Report</h3>
+                    <div id="report-container" style="flex-grow: 1; display: none; margin-bottom: 1rem; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden;">
+                        <iframe id="report-iframe" style="width: 100%; height: 100%; border: none;"></iframe>
                     </div>
-                    <div class="score-card">
-                        <div class="score-label">Hausdorff Distance</div>
-                        <div class="score-value" id="score-hausdorff">-- mm</div>
+                    <div class="action-buttons" style="margin-top: auto;">
+                        <a id="download-report-btn" class="btn-primary" style="display: none; text-decoration: none; text-align: center; margin-bottom: 0.5rem;" target="_blank">Download PDF</a>
+                        <button class="btn-secondary" id="new-scan-btn" style="width: 100%;">Upload New Scan</button>
                     </div>
-                    <div class="score-card">
-                        <div class="score-label">Joint Space Width</div>
-                        <div class="score-value" id="score-jsw">-- mm</div>
-                    </div>
-                    <div class="score-card">
-                        <div class="score-label">Mechanical Axis Angle</div>
-                        <div class="score-value" id="score-maa">-- °</div>
-                    </div>
-                    
-                    <button class="btn-secondary mt-auto" id="new-scan-btn" style="width: 100%;">Upload New Scan</button>
                 </aside>
             </section>
         </main>
@@ -125,6 +142,7 @@
         </div>
     </div>
     
+    <script src="slice_viewer.js"></script>
     <script src="viewer.js"></script>
     <script src="script.js"></script>
 </body>

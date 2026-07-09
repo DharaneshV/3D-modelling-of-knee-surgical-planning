@@ -170,5 +170,24 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     with open(task_mesh_dir / "manifest.json", "w") as f:
         json.dump(manifest, f, indent=4)
         
-    update_status(task_id, "complete", modality=modality, manifest=manifest)
+    # 4. Generate Report
+    update_status(task_id, "generating_report", modality=modality)
+    try:
+        report_cmd = [
+            python_exe, "backend/report_generator.py",
+            task_id, modality, str(file_path), str(task_mesh_dir)
+        ]
+        result_report = subprocess.run(report_cmd, capture_output=True, text=True)
+        if result_report.returncode != 0:
+            raise Exception(f"Report generation script failed: {result_report.stderr.strip()}")
+            
+        report_pdf = task_mesh_dir / "report.pdf"
+        if not report_pdf.exists() or report_pdf.stat().st_size == 0:
+            raise Exception("Report generation failed: report.pdf is missing or empty.")
+            
+        update_status(task_id, "complete", modality=modality, manifest=manifest)
+        
+    except Exception as e:
+        update_status(task_id, "failed", reason=f"report_generation_error: {str(e)}", modality=modality)
+        return
 

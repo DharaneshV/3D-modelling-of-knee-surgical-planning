@@ -5,7 +5,10 @@ import os
 import uuid
 import json
 from pathlib import Path
-from backend.pipeline_runner import run_pipeline_async, get_status_path, UPLOADS_DIR, MESHES_DIR
+import glob
+import SimpleITK as sitk
+from fastapi.responses import Response, JSONResponse, FileResponse
+from backend.pipeline_runner import run_pipeline_async, get_status_path, UPLOADS_DIR, MESHES_DIR, TASKS_DIR
 from backend.modality_detector import detect_modality
 
 app = FastAPI()
@@ -102,3 +105,124 @@ async def get_mesh(task_id: str, file_name: str):
         raise HTTPException(status_code=404, detail="Mesh file not found")
         
     return FileResponse(mesh_path)
+@app.get("/api/volume-info/{task_id}")
+async def get_volume_info(task_id: str):
+    # Find the original scan file
+    files = glob.glob(str(UPLOADS_DIR / f"{task_id}_*"))
+    if not files:
+        raise HTTPException(status_code=404, detail="Original scan not found for this task")
+        
+    file_path = files[0]
+    
+    try:
+        reader = sitk.ImageFileReader()
+        reader.SetFileName(file_path)
+        reader.ReadImageInformation()
+        size = reader.GetSize()
+        spacing = reader.GetSpacing()
+        
+        # Read status to get modality if possible
+        modality = "UNKNOWN"
+        status_path = get_status_path(task_id)
+        if status_path.exists():
+            with open(status_path, "r") as f:
+                modality = json.load(f).get("modality", "UNKNOWN")
+                
+        return {
+            "num_slices": {
+                "sagittal": size[0],
+                "coronal": size[1],
+                "axial": size[2]
+            },
+            "spacing": spacing,
+            "modality": modality
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read volume info: {str(e)}")
+
+@app.get("/api/slices/{task_id}/{plane}/{index}")
+async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: float = None):
+    if plane not in ["axial", "coronal", "sagittal"]:
+        raise HTTPException(status_code=400, detail="Plane must be axial, coronal, or sagittal")
+        
+    files = glob.glob(str(UPLOADS_DIR / f"{task_id}_*"))
+    if not files:
+        raise HTTPException(status_code=404, detail="Original scan not found for this task")
+        
+    file_path = files[0]
+    
+    try:
+        # For performance, only load the slice, not the whole volume if possible.
+        # SimpleITK has limited support for partial IO, so we might just load the whole volume 
+        # and cache it or just load it fast.
+        img = sitk.ReadImage(file_path)
+        size = img.GetSize()
+        
+        # Bounds check
+        max_idx = size[2] - 1 if plane == "axial" else (size[1] - 1 if plane == "coronal" else size[0] - 1)
+        if index < 0 or index > max_idx:
+            raise HTTPException(status_code=400, detail=f"Index out of bounds for {plane} plane (0-{max_idx})")
+            
+        # Extract slice
+        if plane == "axial":
+            slice_img = img[:, :, index]
+        elif plane == "coronal":
+            slice_img = img[:, index, :]
+        else: # sagittal
+            slice_img = img[index, :, :]
+            
+        # Determine default windowing if not provided
+        if wc is None or ww is None:
+            # check modality
+            status_path = get_status_path(task_id)
+            modality = "UNKNOWN"
+            if status_path.exists():
+                with open(status_path, "r") as f:
+                    modality = json.load(f).get("modality", "UNKNOWN")
+                    
+            if modality == "CT":
+                wc, ww = 650, 1700 # bone window approx [-200, 1500]
+            else:
+                # auto-window based on min/max of slice
+                stats = sitk.StatisticsImageFilter()
+                stats.Execute(slice_img)
+                min_v = stats.GetMinimum()
+                max_v = stats.GetMaximum()
+                ww = max_v - min_v
+                wc = min_v + ww / 2.0
+                
+        # Apply window
+        windowed = sitk.IntensityWindowing(slice_img, windowMinimum=wc - ww/2.0, windowMaximum=wc + ww/2.0, outputMinimum=0, outputMaximum=255)
+        windowed = sitk.Cast(windowed, sitk.sitkUInt8)
+        
+        # Save to temp file and return
+        cache_dir = TASKS_DIR / task_id / "slices"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        out_path = cache_dir / f"{plane}_{index}.png"
+        
+        sitk.WriteImage(windowed, str(out_path))
+        
+        return FileResponse(out_path, media_type="image/png")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate slice: {str(e)}")
+
+@app.get("/api/report/{task_id}/pdf")
+async def get_report(task_id: str):
+    status_path = get_status_path(task_id)
+    if not status_path.exists():
+        raise HTTPException(status_code=404, detail="Task not found")
+        
+    with open(status_path, "r") as f:
+        data = json.load(f)
+        
+    if data.get("state") != "complete":
+        raise HTTPException(status_code=409, detail="Report is not ready yet (task not complete)")
+        
+    report_path = MESHES_DIR / task_id / "report.pdf"
+    if not report_path.exists():
+        raise HTTPException(status_code=404, detail="Report file missing")
+        
+    return FileResponse(report_path, media_type="application/pdf", filename=f"KneeTwin_Report_{task_id}.pdf")
