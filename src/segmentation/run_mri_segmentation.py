@@ -19,6 +19,12 @@ def run_mri_segmentation(input_path: str, output_path: str):
     input_dir = temp_dir / "input"
     output_dir = temp_dir / "output"
     
+    import shutil
+    if input_dir.exists():
+        shutil.rmtree(input_dir)
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+        
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -71,18 +77,14 @@ predict_from_folder(
     cmd = ["wsl", "-e", "bash", "-c", f"source ~/cartimorph_venv/bin/activate && python3 {rel_wsl_script}"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print("Inference Failed!")
-        print(result.stderr)
-        return
+        raise Exception(f"Inference Failed! \nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
         
     print("Inference completed. Resampling to 0.5mm isotropic grid...")
     
     # 3. Read the native prediction and resample
     native_pred_path = output_dir / f"{case_id}.nii.gz"
     if not native_pred_path.exists():
-        print(f"Error: expected output {native_pred_path} not found.")
-        print(result.stdout)
-        return
+        raise Exception(f"Error: expected output {native_pred_path} not found.\nSTDOUT: {result.stdout}")
         
     pred_native = sitk.ReadImage(str(native_pred_path))
     pred_iso = resample_label_to_isotropic(pred_native, target_spacing=0.5)
