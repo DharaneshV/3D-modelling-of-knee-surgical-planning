@@ -1,0 +1,21 @@
+{
+    "task_id": "b7c3a711-456f-4fd2-888f-51ec5ed3b3f7",
+    "modality": "CT",
+    "parts": [
+        {
+            "file": "femur_decimated.obj",
+            "label": "Femur",
+            "color": "#e74c3c"
+        },
+        {
+            "file": "tibia_decimated.obj",
+            "label": "Tibia",
+            "color": "#2ecc71"
+        },
+        {
+            "file": "patella_decimated.obj",
+            "label": "Patella",
+            "color": "#3498db"
+        }
+    ]
+}

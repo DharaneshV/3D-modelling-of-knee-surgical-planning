@@ -1,8 +1,13 @@
 import os
+import sys
 import argparse
 import subprocess
-import SimpleITK as sitk
 from pathlib import Path
+
+# Ensure the root directory is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+import SimpleITK as sitk
 from src.preprocessing.data_utils import resample_label_to_isotropic
 
 def run_mri_segmentation(input_path: str, output_path: str):

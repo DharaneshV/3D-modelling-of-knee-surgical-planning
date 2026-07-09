@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KneeTwin - Automated MRI/CT Segmentation</title>
+    <meta name="description" content="Upload MRI or CT scans for automated knee surgery segmentation and modeling.">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- Three.js and OBJLoader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#paint0_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 17L12 22L22 17" stroke="url(#paint1_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 12L12 17L22 12" stroke="url(#paint2_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <defs>
+                        <linearGradient id="paint0_linear" x1="2" y1="2" x2="22" y2="12" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4F46E5"/>
+                            <stop offset="1" stop-color="#7C3AED"/>
+                        </linearGradient>
+                        <linearGradient id="paint1_linear" x1="2" y1="17" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4F46E5"/>
+                            <stop offset="1" stop-color="#7C3AED"/>
+                        </linearGradient>
+                        <linearGradient id="paint2_linear" x1="2" y1="12" x2="22" y2="17" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4F46E5"/>
+                            <stop offset="1" stop-color="#7C3AED"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <h1>KneeTwin</h1>
+            </div>
+        </header>
+
+        <main id="main-content">
+            <!-- Upload View -->
+            <section class="upload-section" id="upload-section">
+                <div class="text-center">
+                    <h2>Upload Scan Data</h2>
+                    <p class="subtitle">Drag and drop your NIfTI or DICOM file. We'll automatically detect if it's CT or MRI.</p>
+                </div>
+                
+                <div class="drop-zone" id="drop-zone">
+                    <input type="file" id="file-input" accept=".nii,.nii.gz,.dcm,image/dicom" hidden>
+                    <div class="drop-zone-content">
+                        <div class="icon-container">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                        </div>
+                        <h3>Choose a file or drag & drop it here</h3>
+                        <p>DICOM and NIFTI up to 500MB</p>
+                        <button class="btn-primary" id="browse-btn">Browse Files</button>
+                    </div>
+                </div>
+
+                <div class="file-list-container" id="file-list-container" style="display: none;">
+                    <h3>Selected File</h3>
+                    <ul class="file-list" id="file-list">
+                        <!-- File item will be injected here -->
+                    </ul>
+                    <div class="action-buttons">
+                        <button class="btn-secondary" id="clear-btn">Clear</button>
+                        <button class="btn-primary" id="upload-btn">Process Scan</button>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Dashboard View (Viewer + Scores) -->
+            <section class="dashboard-section" id="dashboard-section" style="display: none;">
+                <div class="viewer-container">
+                    <div class="badge" id="modality-badge-dashboard">CT Scan</div>
+                    <div id="canvas-container"></div>
+                </div>
+                
+                <aside class="sidebar-results">
+                    <h3>Clinical Scores</h3>
+                    <div class="score-card">
+                        <div class="score-label">Dice Score (Avg)</div>
+                        <div class="score-value" id="score-dice">--</div>
+                    </div>
+                    <div class="score-card">
+                        <div class="score-label">Hausdorff Distance</div>
+                        <div class="score-value" id="score-hausdorff">-- mm</div>
+                    </div>
+                    <div class="score-card">
+                        <div class="score-label">Joint Space Width</div>
+                        <div class="score-value" id="score-jsw">-- mm</div>
+                    </div>
+                    <div class="score-card">
+                        <div class="score-label">Mechanical Axis Angle</div>
+                        <div class="score-value" id="score-maa">-- °</div>
+                    </div>
+                    
+                    <button class="btn-secondary mt-auto" id="new-scan-btn" style="width: 100%;">Upload New Scan</button>
+                </aside>
+            </section>
+        </main>
+        
+        <!-- Processing Overlay -->
+        <div class="processing-overlay" id="processing-overlay" style="display: none;">
+            <div class="glass-panel">
+                <div class="modality-badge" id="modality-badge">Detecting...</div>
+                
+                <div class="spinner"></div>
+                <h3 id="processing-text">Uploading File...</h3>
+                
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                
+                <p id="error-text" class="text-danger" style="display: none;"></p>
+                <button class="btn-secondary" id="cancel-btn" style="display: none; margin-top: 1rem;">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="viewer.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
