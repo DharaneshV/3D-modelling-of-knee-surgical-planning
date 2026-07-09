@@ -116,6 +116,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // 2. Poll for status
             pollStatus(uploadData.task_id);
             
+            // 3. Initialize slice viewer immediately
+            if (window.initSliceViewer) {
+                // Delay slightly to let the UI transition finish
+                setTimeout(() => {
+                    document.getElementById('dashboard-section').style.display = 'grid';
+                    document.getElementById('upload-section').style.display = 'none';
+                    initSliceViewer(uploadData.task_id);
+                }, 500);
+            }
+            
         } catch (err) {
             showError(err.message);
         }
@@ -133,6 +143,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (data.state === 'meshing') {
                     processingText.textContent = 'Generating 3D Models...';
                     progressBar.style.width = '70%';
+                } else if (data.state === 'generating_report') {
+                    processingText.textContent = 'Generating PDF Report...';
+                    progressBar.style.width = '85%';
                 } else if (data.state === 'failed') {
                     clearInterval(interval);
                     showError(data.reason || 'Pipeline failed');
@@ -162,21 +175,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadDashboard(taskId) {
         processingOverlay.style.display = 'none';
-        uploadSection.style.display = 'none';
-        dashboardSection.style.display = 'grid';
         
-        // Fetch Results
-        try {
-            const res = await fetch(`${API_BASE}/results/${taskId}`);
-            const scores = await res.json();
-            
-            document.getElementById('score-dice').textContent = scores.dice_score;
-            document.getElementById('score-hausdorff').textContent = `${scores.hausdorff_distance} mm`;
-            document.getElementById('score-jsw').textContent = `${scores.joint_space_width_mm} mm`;
-            document.getElementById('score-maa').textContent = `${scores.mechanical_axis_angle} °`;
-        } catch (e) {
-            console.error("Failed to load scores", e);
-        }
+        // Show report
+        const reportContainer = document.getElementById('report-container');
+        const reportIframe = document.getElementById('report-iframe');
+        const downloadBtn = document.getElementById('download-report-btn');
+        
+        reportIframe.src = `${API_BASE}/report/${taskId}/pdf`;
+        reportContainer.style.display = 'block';
+        downloadBtn.href = `${API_BASE}/report/${taskId}/pdf`;
+        downloadBtn.style.display = 'block';
         
         // Init 3D Viewer
         if (window.initViewer) {
