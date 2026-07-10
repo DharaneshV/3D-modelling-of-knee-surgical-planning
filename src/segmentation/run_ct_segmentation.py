@@ -1,22 +1,18 @@
 """
 run_ct_segmentation.py — Production CT bone segmentation using TotalSegmentator
 
-Replaces the HU-threshold + watershed pipeline (legacy_threshold.py) as the
-primary production method. Uses TotalSegmentator models for all three bones:
-  - task='total'              (Apache 2.0) → femur, tibia
-  - task='appendicular_bones' (licensed)  → patella
+Uses TotalSegmentator models for all three bones:
+  - task='total'              (Apache 2.0) → femur_left, femur_right
+  - task='appendicular_bones' (licensed)  → tibia, patella (unlateralized)
 
-Combines both task outputs into a single multi-label mask matching the
-downstream label convention: 1=femur, 2=tibia, 3=patella.
-
-Output is geometrically equivalent to the old bone_segmentation.py output
-so that nothing downstream (meshing, clinical measurements) needs changes.
+Handles bilateral (500mm FOV) scans natively. Uses femur centroids to assign 
+tibia and patella fragments to left/right sides. Output is a 6-label mask:
+1=Femur_L, 2=Femur_R, 3=Tibia_L, 4=Tibia_R, 5=Patella_L, 6=Patella_R
 
 Usage:
     python src/segmentation/run_ct_segmentation.py \
         --input  data/raw/case01_STS_006.nii.gz \
-        --output outputs/STS_006/masks/bone_mask.nii.gz \
-        [--leg right|left|auto]
+        --output outputs/STS_006/masks/bone_mask.nii.gz
 """
 
 import os
@@ -26,8 +22,10 @@ import logging
 import argparse
 import subprocess
 import tempfile
+import json
 import numpy as np
 import SimpleITK as sitk
+from scipy.ndimage import label, center_of_mass
 from pathlib import Path
 
 # Suppress noisy nnU-Net / torch warnings
@@ -35,34 +33,24 @@ os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-# Labels — must stay consistent with meshing, measurements, and report downstream
-LABEL_FEMUR  = 1
-LABEL_TIBIA  = 2
-LABEL_PATELLA = 3
+# 6-Label Convention
+LABEL_FEMUR_L   = 1
+LABEL_FEMUR_R   = 2
+LABEL_TIBIA_L   = 3
+LABEL_TIBIA_R   = 4
+LABEL_PATELLA_L = 5
+LABEL_PATELLA_R = 6
 
 # TotalSegmentator ROI names for each task
-# 'total' task covers femur on both sides
-TOTAL_FEMUR_ROIS  = ["femur_left",  "femur_right"]
+TOTAL_FEMUR_ROIS  = ["femur_left", "femur_right"]
+APPENDICULAR_ROIS = ["tibia", "patella"]
 
-# 'appendicular_bones' task covers tibia and patella (no left/right suffix in V2)
-APPENDICULAR_TIBIA_ROIS = ["tibia"]
-APPENDICULAR_PATELLA_ROIS = ["patella"]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper: detect which leg (left/right) is in a cropped volume
-# ─────────────────────────────────────────────────────────────────────────────
-
-def detect_leg_side(image: sitk.Image) -> str:
-    """Return 'right' or 'left' based on image direction cosines."""
-    direction = image.GetDirection()
-    # In standard LPS, direction[0] > 0 means lower X-index is Right
-    return "right" if direction[0] >= 0 else "left"
-
+# Minimum voxel thresholds to ignore noise fragments during L/R assignment
+MIN_VOXELS_TIBIA = 500
+MIN_VOXELS_PATELLA = 200
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Preprocessing: resampling (TotalSegmentator handles its own resampling,
-# but we resample to isotropic 1mm³ before passing in for consistency)
+# Preprocessing
 # ─────────────────────────────────────────────────────────────────────────────
 
 def resample_to_isotropic(image: sitk.Image, spacing=(1.0, 1.0, 1.0)) -> sitk.Image:
@@ -83,66 +71,24 @@ def resample_to_isotropic(image: sitk.Image, spacing=(1.0, 1.0, 1.0)) -> sitk.Im
     return resampler.Execute(image)
 
 
-def crop_to_leg(image: sitk.Image, side: str = "auto") -> sitk.Image:
-    """Crop bilateral scan to a single leg. Mirrors legacy logic exactly."""
-    size    = image.GetSize()
-    spacing = image.GetSpacing()
-    width_mm = size[0] * spacing[0]
-
-    if width_mm < 300:
-        logger.info(f"Image width {width_mm:.1f}mm < 300mm — assumed single-leg, no crop.")
-        return image
-
-    if side == "auto":
-        side = detect_leg_side(image)
-        logger.info(f"Auto-detected leg side: {side}")
-
-    direction = image.GetDirection()
-    mid_x = size[0] // 2
-
-    if direction[0] >= 0:
-        # Lower X-index = Right side
-        extract_index = [0, 0, 0]         if side == "right" else [mid_x, 0, 0]
-        extract_size  = [mid_x, size[1], size[2]] if side == "right" else [size[0] - mid_x, size[1], size[2]]
-    else:
-        # Lower X-index = Left side
-        extract_index = [0, 0, 0]         if side == "left" else [mid_x, 0, 0]
-        extract_size  = [mid_x, size[1], size[2]] if side == "left" else [size[0] - mid_x, size[1], size[2]]
-
-    extractor = sitk.ExtractImageFilter()
-    extractor.SetSize(extract_size)
-    extractor.SetIndex(extract_index)
-    cropped = extractor.Execute(image)
-    logger.info(f"Cropped to {side} leg: {cropped.GetSize()}")
-    return cropped
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # TotalSegmentator inference helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_totalsegmentator(nifti_path: str, out_dir: str, task: str,
                           roi_subset: list | None = None):
-    """
-    Calls TotalSegmentator via subprocess (the console script entry point),
-    not the Python API. This avoids the Windows multiprocessing pickling crash
-    in nnUNet's prediction worker spawn — same pattern used in run_mri_segmentation.py.
-    """
-    # Use the venv TotalSegmentator console script (which is an .exe in v2)
     ts_exe = Path(sys.executable).parent / "TotalSegmentator.exe"
     cmd = [
         str(ts_exe),
         "-i", nifti_path,
         "-o", out_dir,
-        "-ta", task,        # -ta is the CLI flag for --task
-        "-nr", "1",         # nr_thr_resamp
-        "-ns", "1",         # nr_thr_saving
-        "-q",               # quiet
+        "-ta", task,
+        "-nr", "1",
+        "-ns", "1",
+        "-q",
     ]
-    if task == "total":
-        cmd.append("-f")    # fast mode (1.5mm model) only supported on total task
     if roi_subset:
-        cmd += ["-rs"] + roi_subset  # -rs is --roi_subset
+        cmd += ["-rs"] + roi_subset
 
     logger.info(f"  Running TotalSegmentator task='{task}'  roi_subset={roi_subset}")
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -155,89 +101,165 @@ def _run_totalsegmentator(nifti_path: str, out_dir: str, task: str,
     logger.info(f"  task='{task}' complete.")
 
 
-def _load_roi_as_binary(out_dir: str, roi_names: list) -> np.ndarray | None:
+def _load_roi_as_binary(out_dir: str, roi_name: str) -> np.ndarray | None:
+    roi_path = os.path.join(out_dir, f"{roi_name}.nii.gz")
+    if not os.path.exists(roi_path):
+        return None
+    img = sitk.ReadImage(roi_path)
+    return sitk.GetArrayFromImage(img).astype(np.uint8)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Anatomical Component Filtering
+# ─────────────────────────────────────────────────────────────────────────────
+
+def keep_largest_component(binary_arr: np.ndarray | None) -> np.ndarray | None:
     """
-    Load one or more per-ROI NIfTI files from TotalSegmentator output dir,
-    combine them into a single binary array. Returns None if no files found.
+    Isolates the single largest connected component in a binary mask.
+    ASSUMPTION: True bone anatomy in this dataset (soft tissue sarcoma CT) is always a 
+    single connected blob. This assumes no severe post-surgical fragmentation or shattered 
+    fractures where a single bone is physically split into multiple true pieces.
     """
-    combined = None
-    ref_img  = None
-    for roi in roi_names:
-        roi_path = os.path.join(out_dir, f"{roi}.nii.gz")
-        if not os.path.exists(roi_path):
-            logger.warning(f"  ROI file not found: {roi_path}")
+    if binary_arr is None or np.sum(binary_arr) == 0:
+        return binary_arr
+        
+    labeled_arr, num_features = label(binary_arr > 0)
+    if num_features <= 1:
+        return binary_arr
+        
+    largest_cc = 0
+    max_voxels = 0
+    for i in range(1, num_features + 1):
+        voxel_count = np.sum(labeled_arr == i)
+        if voxel_count > max_voxels:
+            max_voxels = voxel_count
+            largest_cc = i
+            
+    filtered_arr = np.zeros_like(binary_arr)
+    filtered_arr[labeled_arr == largest_cc] = 1
+    return filtered_arr
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Anatomical Side Assignment (Tibia / Patella)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_centroid(binary_arr: np.ndarray) -> tuple | None:
+    if np.sum(binary_arr) == 0:
+        return None
+    return center_of_mass(binary_arr)
+
+def assign_sides(binary_mask: np.ndarray, femur_l_centroid: tuple | None, 
+                 femur_r_centroid: tuple | None, min_voxels: int, 
+                 bone_name: str) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Splits a single unlateralized mask into Left and Right based on proximity 
+    of each connected component to the given femur centroids.
+    Returns (left_mask, right_mask).
+    """
+    left_mask = np.zeros_like(binary_mask)
+    right_mask = np.zeros_like(binary_mask)
+    
+    if binary_mask is None or np.sum(binary_mask) == 0:
+        return left_mask, right_mask
+        
+    labeled_arr, num_features = label(binary_mask > 0)
+    
+    dropped_noise = 0
+    for i in range(1, num_features + 1):
+        comp_mask = (labeled_arr == i)
+        voxel_count = np.sum(comp_mask)
+        
+        if voxel_count < min_voxels:
+            dropped_noise += 1
             continue
-        img = sitk.ReadImage(roi_path)
-        arr = sitk.GetArrayFromImage(img).astype(np.uint8)
-        if combined is None:
-            combined = arr
-            ref_img  = img
+            
+        comp_centroid = center_of_mass(comp_mask)
+        
+        # Calculate distances
+        dist_l = float('inf')
+        dist_r = float('inf')
+        
+        if femur_l_centroid:
+            dist_l = np.linalg.norm(np.array(comp_centroid) - np.array(femur_l_centroid))
+        if femur_r_centroid:
+            dist_r = np.linalg.norm(np.array(comp_centroid) - np.array(femur_r_centroid))
+            
+        logger.info(f"    {bone_name} component {i} ({voxel_count} voxels): dist_L={dist_l:.1f}, dist_R={dist_r:.1f}")
+        
+        if dist_l == float('inf') and dist_r == float('inf'):
+            logger.warning(f"    No femurs found, dropping {bone_name} component {i}.")
+            continue
+            
+        if dist_l <= dist_r:
+            logger.info(f"    -> Assigned to LEFT")
+            left_mask[comp_mask] = 1
         else:
-            combined = np.maximum(combined, arr)
-    return combined, ref_img
+            logger.info(f"    -> Assigned to RIGHT")
+            right_mask[comp_mask] = 1
+            
+    if dropped_noise > 0:
+        logger.info(f"    Dropped {dropped_noise} noise fragments (< {min_voxels} voxels) for {bone_name}.")
+        
+    return left_mask, right_mask
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Anatomical validation (carried over from legacy — same hard gates)
+# Anatomical validation
 # ─────────────────────────────────────────────────────────────────────────────
 
-def validate_combined_mask(mask_arr: np.ndarray, spacing: tuple) -> None:
+def validate_combined_mask(mask_arr: np.ndarray, spacing: tuple) -> dict:
     """
-    Confirms the combined mask has at least femur + tibia + patella populated.
-    Raises ValueError with a clear message if not, so batch pipeline can log & skip.
+    Confirms the combined mask has at least a complete triplet (femur, tibia, patella)
+    on at least one side. Returns a laterality summary dict.
     """
     voxel_vol = spacing[0] * spacing[1] * spacing[2]
-    labels_present = []
-    min_voxels = int(3000 / voxel_vol)  # 3000 mm³ threshold from legacy
-
-    for label_val, name in [(LABEL_FEMUR, "femur"), (LABEL_TIBIA, "tibia"), (LABEL_PATELLA, "patella")]:
+    min_voxels = int(3000 / voxel_vol)  # 3000 mm³ threshold
+    
+    counts = {}
+    labels_map = {
+        LABEL_FEMUR_L: "femur_left", LABEL_FEMUR_R: "femur_right",
+        LABEL_TIBIA_L: "tibia_left", LABEL_TIBIA_R: "tibia_right",
+        LABEL_PATELLA_L: "patella_left", LABEL_PATELLA_R: "patella_right"
+    }
+    
+    for label_val, name in labels_map.items():
         count = int(np.sum(mask_arr == label_val))
         if count >= min_voxels:
-            labels_present.append(name)
+            counts[name] = count
         else:
-            logger.warning(f"  {name}: only {count} voxels (< {min_voxels} threshold) — treating as absent.")
+            if count > 0:
+                logger.warning(f"  {name}: only {count} voxels (< {min_voxels} threshold) — treating as absent.")
+            counts[name] = 0
 
-    if len(labels_present) < 3:
-        missing = [n for n in ["femur", "tibia", "patella"] if n not in labels_present]
+    has_left = counts["femur_left"] > 0 and counts["tibia_left"] > 0 and counts["patella_left"] > 0
+    has_right = counts["femur_right"] > 0 and counts["tibia_right"] > 0 and counts["patella_right"] > 0
+
+    if not has_left and not has_right:
         raise ValueError(
-            f"Anatomical validation failed: missing bones after TotalSegmentator: {missing}. "
-            f"This is likely a non-knee scan, or TotalSegmentator did not detect these structures."
+            "Anatomical validation failed: neither side has a complete femur+tibia+patella triplet."
         )
 
-    # Volume sanity: femur volume should be larger than patella
-    femur_vol = np.sum(mask_arr == LABEL_FEMUR)  * voxel_vol
-    patella_vol= np.sum(mask_arr == LABEL_PATELLA)* voxel_vol
-    if patella_vol > femur_vol:
-        raise ValueError(
-            f"Anatomical sanity check failed: patella volume ({patella_vol:.0f}mm³) > "
-            f"femur volume ({femur_vol:.0f}mm³). Label assignment likely incorrect."
-        )
-    logger.info(f"  Validation passed: {labels_present} all present.")
+    sides_present = []
+    if has_left: sides_present.append("left")
+    if has_right: sides_present.append("right")
+    
+    laterality = "bilateral" if len(sides_present) == 2 else sides_present[0]
+    logger.info(f"  Validation passed: laterality={laterality}")
+
+    return {
+        "laterality": laterality,
+        "sides_present": sides_present,
+        "voxel_counts": counts
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main segmentation entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def segment(input_path: str, output_path: str, leg: str = "auto",
+def segment(input_path: str, output_path: str,
             intermediate_dir: str | None = None, keep_intermediate: bool = False):
-    """
-    Full production segmentation pipeline:
-      1. Resample to isotropic 1mm³
-      2. Crop to single leg
-      3. Run TotalSegmentator (total task → femur, tibia)
-      4. Run TotalSegmentator (appendicular_bones task → patella)
-      5. Combine into single multi-label mask (1=femur, 2=tibia, 3=patella)
-      6. Anatomical validation
-      7. Write output mask
-
-    Args:
-        input_path:         Path to raw CT NIfTI volume.
-        output_path:        Path to write the combined bone mask.
-        leg:                'right', 'left', or 'auto' (auto-detects from direction cosines).
-        intermediate_dir:   Where to write TotalSegmentator raw output. Defaults to a temp dir.
-        keep_intermediate:  If False (default), intermediate dir is deleted after success.
-    """
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     # ── 1. Load + resample
@@ -247,10 +269,7 @@ def segment(input_path: str, output_path: str, leg: str = "auto",
     ct = resample_to_isotropic(raw_ct)
     logger.info(f"  Resampled: spacing={ct.GetSpacing()}, size={ct.GetSize()}")
 
-    # ── 2. Crop to single leg
-    ct_leg = crop_to_leg(ct, side=leg)
-
-    # ── 3 & 4. Run TotalSegmentator — use a temp dir if none specified
+    # ── 2 & 3. Run TotalSegmentator — use a temp dir if none specified
     cleanup_intermediate = False
     if intermediate_dir is None:
         intermediate_dir = tempfile.mkdtemp(prefix="totalseg_")
@@ -261,44 +280,74 @@ def segment(input_path: str, output_path: str, leg: str = "auto",
     os.makedirs(total_dir, exist_ok=True)
     os.makedirs(appendicular_dir, exist_ok=True)
 
-    # Write cropped leg to temp NIfTI for TotalSegmentator input
-    leg_nifti = os.path.join(intermediate_dir, "ct_leg.nii.gz")
-    sitk.WriteImage(ct_leg, leg_nifti)
+    ct_nifti = os.path.join(intermediate_dir, "ct_full.nii.gz")
+    sitk.WriteImage(ct, ct_nifti)
 
     try:
         # task='total' for femur (Apache 2.0, no license concern)
-        _run_totalsegmentator(leg_nifti, total_dir, task="total",
-                              roi_subset=TOTAL_FEMUR_ROIS)
+        _run_totalsegmentator(ct_nifti, total_dir, task="total", roi_subset=TOTAL_FEMUR_ROIS)
 
-        # task='appendicular_bones' for patella and tibia (requires license)
-        # Note: TotalSegmentator V2 does not support roi_subset on this task,
-        # so we run it for all bones and simply load only the ones we need.
-        _run_totalsegmentator(leg_nifti, appendicular_dir, task="appendicular_bones")
+        # task='appendicular_bones' for patella and tibia
+        _run_totalsegmentator(ct_nifti, appendicular_dir, task="appendicular_bones")
     except Exception as e:
-        # Clean up temp dir before re-raising
         if cleanup_intermediate:
             shutil.rmtree(intermediate_dir, ignore_errors=True)
         raise e
 
-    logger.info("Combining TotalSegmentator labels...")
-    ref_img  = ct_leg
-    combined = np.zeros(sitk.GetArrayFromImage(ct_leg).shape, dtype=np.uint8)
+    logger.info("Combining TotalSegmentator labels and assigning sides...")
+    
+    # Load Femurs
+    femur_l_arr = _load_roi_as_binary(total_dir, "femur_left")
+    femur_r_arr = _load_roi_as_binary(total_dir, "femur_right")
+    
+    femur_l_centroid = get_centroid(femur_l_arr) if femur_l_arr is not None else None
+    femur_r_centroid = get_centroid(femur_r_arr) if femur_r_arr is not None else None
+    
+    # Load and split Tibia
+    tibia_raw = _load_roi_as_binary(appendicular_dir, "tibia")
+    logger.info("Splitting Tibia...")
+    tibia_l_arr, tibia_r_arr = assign_sides(
+        tibia_raw, femur_l_centroid, femur_r_centroid, MIN_VOXELS_TIBIA, "Tibia"
+    )
 
-    femur_arr,  femur_ref  = _load_roi_as_binary(total_dir,        TOTAL_FEMUR_ROIS)
-    tibia_arr,  tibia_ref  = _load_roi_as_binary(appendicular_dir, APPENDICULAR_TIBIA_ROIS)
-    patella_arr, pat_ref   = _load_roi_as_binary(appendicular_dir, APPENDICULAR_PATELLA_ROIS)
+    # Load and split Patella
+    patella_raw = _load_roi_as_binary(appendicular_dir, "patella")
+    logger.info("Splitting Patella...")
+    patella_l_arr, patella_r_arr = assign_sides(
+        patella_raw, femur_l_centroid, femur_r_centroid, MIN_VOXELS_PATELLA, "Patella"
+    )
 
-    if femur_arr  is not None: combined[femur_arr  > 0] = LABEL_FEMUR
-    if tibia_arr  is not None: combined[tibia_arr  > 0] = LABEL_TIBIA
-    # Patella written last — if there's any overlap with tibia near joint, patella wins
-    if patella_arr is not None: combined[patella_arr > 0] = LABEL_PATELLA
+    # Apply single-largest-component filter to drop disconnected noise (e.g. fibula leaks)
+    femur_l_arr = keep_largest_component(femur_l_arr)
+    femur_r_arr = keep_largest_component(femur_r_arr)
+    tibia_l_arr = keep_largest_component(tibia_l_arr)
+    tibia_r_arr = keep_largest_component(tibia_r_arr)
+    patella_l_arr = keep_largest_component(patella_l_arr)
+    patella_r_arr = keep_largest_component(patella_r_arr)
 
-    # ── 6. Anatomical validation
-    validate_combined_mask(combined, ct_leg.GetSpacing())
+    # Merge into 6-label mask
+    combined = np.zeros(sitk.GetArrayFromImage(ct).shape, dtype=np.uint8)
+    
+    if femur_l_arr is not None: combined[femur_l_arr > 0] = LABEL_FEMUR_L
+    if femur_r_arr is not None: combined[femur_r_arr > 0] = LABEL_FEMUR_R
+    if tibia_l_arr is not None: combined[tibia_l_arr > 0] = LABEL_TIBIA_L
+    if tibia_r_arr is not None: combined[tibia_r_arr > 0] = LABEL_TIBIA_R
+    
+    # Patella written last — patella wins at joint boundary
+    if patella_l_arr is not None: combined[patella_l_arr > 0] = LABEL_PATELLA_L
+    if patella_r_arr is not None: combined[patella_r_arr > 0] = LABEL_PATELLA_R
 
-    # ── 7. Write output
+    # ── 4. Anatomical validation & summary
+    summary_dict = validate_combined_mask(combined, ct.GetSpacing())
+    
+    summary_path = os.path.join(Path(output_path).parent, "laterality_summary.json")
+    with open(summary_path, "w") as f:
+        json.dump(summary_dict, f, indent=4)
+    logger.info(f"Laterality summary written: {summary_path}")
+
+    # ── 5. Write output mask
     mask_img = sitk.GetImageFromArray(combined)
-    mask_img.CopyInformation(ct_leg)
+    mask_img.CopyInformation(ct)
     sitk.WriteImage(mask_img, output_path)
     logger.info(f"Mask written: {output_path}")
 
@@ -318,8 +367,6 @@ def main():
     parser = argparse.ArgumentParser(description="TotalSegmentator-based CT bone segmentation (production)")
     parser.add_argument("--input",  required=True, help="Path to input CT NIfTI (.nii.gz)")
     parser.add_argument("--output", required=True, help="Path to write combined bone mask")
-    parser.add_argument("--leg",    default="auto", choices=["auto", "right", "left"],
-                        help="Which leg to isolate (default: auto-detect from direction cosines)")
     parser.add_argument("--keep-intermediate", action="store_true",
                         help="Keep raw TotalSegmentator per-ROI outputs for inspection")
     parser.add_argument("--intermediate-dir", default=None,
@@ -330,7 +377,6 @@ def main():
         segment(
             input_path=args.input,
             output_path=args.output,
-            leg=args.leg,
             intermediate_dir=args.intermediate_dir,
             keep_intermediate=args.keep_intermediate or (args.intermediate_dir is not None),
         )

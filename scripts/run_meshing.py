@@ -12,9 +12,9 @@ from src.mesh.processing import apply_taubin_smoothing, decimate_mesh
 # Pre-defined label maps for different tracks
 LABEL_MAPS = {
     "ct_bone": {
-        "femur": 1, 
-        "tibia": 2, 
-        "patella": 3
+        "femur_left": 1, "femur_right": 2, 
+        "tibia_left": 3, "tibia_right": 4, 
+        "patella_left": 5, "patella_right": 6
     },
     "mri_cartilage": {
         "femoral_cartilage": 2, 
@@ -59,6 +59,10 @@ def main():
         labels = raw_mesh.cell_data['BoundaryLabels']
         mask = (labels[:, 0] == label_id) | (labels[:, 1] == label_id)
         
+        if not np.any(mask):
+            print(f"Skipping {label_name} — no voxels/cells found in mesh (likely unilateral).")
+            continue
+            
         # extract cells for this label
         sub_mesh = raw_mesh.extract_cells(mask)
         # extract_surface to get clean PolyData
@@ -72,6 +76,9 @@ def main():
         # apply decimation
         print(f"Decimating {label_name}...")
         decimated_comp = decimate_mesh(smoothed_comp, target_reduction=args.decimation_target)
+        
+        # Extract largest connected component to drop any noise pinched off during meshing
+        decimated_comp = decimated_comp.connectivity(extraction_mode='largest')
         
         comp_path = os.path.join(args.output_dir, f"{label_name}_decimated.obj")
         decimated_comp.save(comp_path)

@@ -4,8 +4,11 @@ import json
 import subprocess
 import threading
 import time
+import hashlib
+import shutil
 from pathlib import Path
 from backend.modality_detector import detect_modality
+from backend.config import PIPELINE_VERSION
 
 TASKS_DIR = Path("tasks")
 TASKS_DIR.mkdir(exist_ok=True)
@@ -13,6 +16,8 @@ UPLOADS_DIR = Path("uploads")
 UPLOADS_DIR.mkdir(exist_ok=True)
 MESHES_DIR = Path("meshes")
 MESHES_DIR.mkdir(exist_ok=True)
+CACHE_DIR = Path("cache")
+CACHE_DIR.mkdir(exist_ok=True)
 
 # Global lock for single-job pipeline processing
 PIPELINE_LOCK = threading.Lock()
@@ -46,7 +51,7 @@ def update_status(task_id: str, state: str, reason: str = "", modality: str = ""
     with open(status_path, "w") as f:
         json.dump(data, f, indent=4)
 
-def run_pipeline_async(task_id: str, file_path: str):
+def run_pipeline_async(task_id: str, file_path: str, file_hash: str = None):
     """
     Runs the pipeline in a background thread, using a lock to prevent concurrent runs.
     """
@@ -69,6 +74,10 @@ def run_pipeline_async(task_id: str, file_path: str):
             update_status(task_id, "segmenting", modality=modality)
             try:
                 _execute_pipeline(task_id, file_path, modality)
+                
+                # Write to cache on success
+                if file_hash:
+                    write_cache(file_hash, task_id)
             except Exception as e:
                 update_status(task_id, "failed", reason=str(e), modality=modality)
                 
@@ -90,9 +99,12 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     if modality == "CT":
         track = "ct_bone"
         expected_parts = [
-            {"file": "femur_decimated.obj", "label": "Femur", "color": "#e74c3c"},
-            {"file": "tibia_decimated.obj", "label": "Tibia", "color": "#2ecc71"},
-            {"file": "patella_decimated.obj", "label": "Patella", "color": "#3498db"}
+            {"file": "femur_left_decimated.obj",   "label": "Femur (Left)",   "color": "#e74c3c", "side": "left"},
+            {"file": "femur_right_decimated.obj",  "label": "Femur (Right)",  "color": "#e74c3c", "side": "right"},
+            {"file": "tibia_left_decimated.obj",   "label": "Tibia (Left)",   "color": "#2ecc71", "side": "left"},
+            {"file": "tibia_right_decimated.obj",  "label": "Tibia (Right)",  "color": "#2ecc71", "side": "right"},
+            {"file": "patella_left_decimated.obj", "label": "Patella (Left)", "color": "#3498db", "side": "left"},
+            {"file": "patella_right_decimated.obj","label": "Patella (Right)","color": "#3498db", "side": "right"},
         ]
         
         update_status(task_id, "segmenting", modality=modality, reason="Running TotalSegmentator (femur, tibia, patella)...")
@@ -126,16 +138,30 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     if result_mesh.returncode != 0:
         raise Exception(f"Meshing script failed: {result_mesh.stderr.strip()}")
     
-    # Check outputs and generate manifest
+    # Read laterality summary if it exists (CT only)
+    laterality_summary = {}
+    laterality_summary_path = task_mesh_dir / "laterality_summary.json"
+    if laterality_summary_path.exists():
+        with open(laterality_summary_path, "r") as f:
+            laterality_summary = json.load(f)
+            
+    laterality = laterality_summary.get("laterality", "unknown")
+    sides_present = laterality_summary.get("sides_present", ["left", "right"])
+
     manifest = {
         "task_id": task_id,
         "modality": modality,
+        "laterality": laterality,
         "parts": []
     }
     
     missing_files = []
     
     for part in expected_parts:
+        # If this part belongs to a side that isn't present in the scan, skip it
+        if "side" in part and part["side"] not in sides_present:
+            continue
+            
         part_path = task_mesh_dir / part["file"]
         if not part_path.exists() or part_path.stat().st_size == 0:
             missing_files.append(part["file"])
@@ -177,4 +203,33 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     except Exception as e:
         update_status(task_id, "failed", reason=f"report_generation_error: {str(e)}", modality=modality)
         return
+
+
+def get_file_hash(file_path: str) -> str:
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while chunk := f.read(8192):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+def check_cache(file_path: str) -> dict:
+    file_hash = get_file_hash(file_path)
+    cache_file = CACHE_DIR / f"{file_hash}.json"
+    if cache_file.exists():
+        with open(cache_file, "r") as f:
+            data = json.load(f)
+        if data.get("pipeline_version") == PIPELINE_VERSION:
+            return {"hit": True, "old_task_id": data["task_id"], "hash": file_hash}
+    return {"hit": False, "hash": file_hash}
+
+def write_cache(file_hash: str, task_id: str):
+    # Note: cache/*.json entries never expire or get pruned. Fine for POC, 
+    # but needs a cleanup policy for long-running production usage.
+    cache_file = CACHE_DIR / f"{file_hash}.json"
+    with open(cache_file, "w") as f:
+        json.dump({
+            "task_id": task_id,
+            "pipeline_version": PIPELINE_VERSION,
+            "timestamp": time.time()
+        }, f, indent=4)
 
