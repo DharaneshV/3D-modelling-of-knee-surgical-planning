@@ -48,6 +48,8 @@ async def process_upload(file: UploadFile = File(...)):
         
     # Check cache
     cache_result = check_cache(str(file_path))
+    print(f"CACHE DIAGNOSTIC -> file_hash: {cache_result['hash']}, hit: {cache_result['hit']}")
+    
     if cache_result["hit"]:
         old_task_id = cache_result["old_task_id"]
         old_mesh_dir = MESHES_DIR / old_task_id
