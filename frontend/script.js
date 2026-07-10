@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!selectedFile) return;
 
         processingOverlay.style.display = 'flex';
-        processingText.textContent = 'Uploading File...';
+        processingText.textContent = `Processing: ${selectedFile.name}`;
         progressBar.style.width = '10%';
         modalityBadge.textContent = 'Detecting...';
         
@@ -112,6 +112,11 @@ document.addEventListener('DOMContentLoaded', () => {
             
             modalityBadge.textContent = `${uploadData.modality} Scan Detected`;
             document.getElementById('modality-badge-dashboard').textContent = `${uploadData.modality} Scan`;
+            
+            if (uploadData.cached) {
+                processingText.textContent = 'Previously processed — loaded instantly.';
+                progressBar.style.width = '100%';
+            }
             
             // 2. Poll for status
             pollStatus(uploadData.task_id);
@@ -137,6 +142,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const res = await fetch(`${API_BASE}/status/${taskId}`);
                 const data = await res.json();
                 
+                if (data.laterality && data.laterality !== 'unknown') {
+                    const latBadge = document.getElementById('laterality-badge');
+                    latBadge.style.display = 'block';
+                    latBadge.textContent = data.laterality === 'bilateral' ? 'Bilateral' : (data.laterality.charAt(0).toUpperCase() + data.laterality.slice(1) + ' Knee');
+                }
+
                 if (data.state === 'segmenting') {
                     processingText.textContent = 'Segmenting Scan Data...';
                     progressBar.style.width = '40%';
@@ -190,6 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Populate Header
             document.getElementById('r-task-id').textContent = data.task_id;
             document.getElementById('r-scan-date').textContent = data.scan_date;
+            document.getElementById('r-file-name').textContent = selectedFile ? selectedFile.name : 'Unknown';
             document.getElementById('r-modality').textContent = data.modality;
             document.getElementById('r-laterality').textContent = data.laterality;
             

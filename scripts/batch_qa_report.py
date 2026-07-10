@@ -15,18 +15,23 @@ import argparse
 import logging
 import numpy as np
 import SimpleITK as sitk
+import pyvista as pv
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# QA Thresholds (Expanded for TotalSegmentator V2 full-shaft inclusion)
+# QA Thresholds
 # ─────────────────────────────────────────────────────────────────────────────
-BONE_LABELS = {1: "femur", 2: "tibia", 3: "patella"}
+BONE_LABELS = {
+    1: "femur_left", 2: "femur_right",
+    3: "tibia_left", 4: "tibia_right",
+    5: "patella_left", 6: "patella_right"
+}
 VOLUME_BOUNDS = {
-    "femur":   (80_000,  800_000),  # V2 can capture a lot of the shaft
-    "tibia":   (60_000,  600_000),  # V2 can capture a lot of the shaft
+    "femur":   (80_000,  800_000),
+    "tibia":   (60_000,  600_000),
     "patella": (5_000,   50_000),
 }
 
@@ -35,8 +40,7 @@ VOLUME_BOUNDS = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_symbol(is_pass: bool) -> str:
-    # Use ASCII fallback for cross to avoid Windows cp1252 charmap crashes
-    return "✓" if is_pass else "fail"
+    return "Y" if is_pass else "N"
 
 def check_watertight(obj_path: str) -> tuple[bool, int, int, int]:
     """Returns (is_watertight, boundary_edges, vertex_count, face_count)."""
@@ -59,6 +63,12 @@ def check_watertight(obj_path: str) -> tuple[bool, int, int, int]:
     boundary = sum(1 for c in edge_count.values() if c == 1)
     return boundary == 0, boundary, verts, len(faces)
 
+def check_components(obj_path: str) -> int:
+    """Returns the number of disconnected geometric components in the mesh."""
+    mesh = pv.read(obj_path)
+    conn = mesh.connectivity(extraction_mode='all')
+    return len(np.unique(conn['RegionId']))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-case QA
@@ -66,7 +76,7 @@ def check_watertight(obj_path: str) -> tuple[bool, int, int, int]:
 
 def qa_case(case_dir: Path) -> dict:
     case_id = case_dir.name
-    result  = {"case_id": case_id, "pass": True, "flags": [], "bones": {}, "z_extent_mm": 0}
+    result  = {"case_id": case_id, "pass": True, "flags": [], "bones": {}, "z_extent_mm": 0, "laterality": "unknown"}
 
     # 1. Mask-level volumetric check
     mask_path = case_dir / "masks" / "bone_mask.nii.gz"
@@ -74,6 +84,17 @@ def qa_case(case_dir: Path) -> dict:
         result["pass"] = False
         result["flags"].append("MISSING: bone_mask.nii.gz")
         return result
+        
+    summary_path = case_dir / "masks" / "laterality_summary.json"
+    sides_present = ["left", "right"]
+    if summary_path.exists():
+        try:
+            with open(summary_path, 'r') as f:
+                summary = json.load(f)
+                sides_present = summary.get("sides_present", sides_present)
+                result["laterality"] = summary.get("laterality", "unknown")
+        except:
+            pass
 
     try:
         mask_img  = sitk.ReadImage(str(mask_path))
@@ -84,16 +105,22 @@ def qa_case(case_dir: Path) -> dict:
         
         result["z_extent_mm"] = round(size[2] * spacing[2])
 
-        for label_val, bone_name in BONE_LABELS.items():
+        for label_val, bone_name_full in BONE_LABELS.items():
+            side = "left" if "_left" in bone_name_full else "right"
+            bone_name = bone_name_full.split('_')[0]
+            
+            if side not in sides_present:
+                continue
+
             voxels = int(np.sum(mask_arr == label_val))
             vol_mm3 = round(voxels * voxel_vol)
             lo, hi = VOLUME_BOUNDS[bone_name]
             in_range = lo <= vol_mm3 <= hi
-            flag = None if in_range else f"VOLUME_FLAG: {bone_name} {vol_mm3}mm³ outside [{lo},{hi}]mm³"
+            flag = None if in_range else f"VOLUME_FLAG: {bone_name_full} {vol_mm3}mm3 outside [{lo},{hi}]mm3"
             if flag:
                 result["flags"].append(flag)
                 result["pass"] = False
-            result["bones"][bone_name] = {"volume_mm3": vol_mm3, "in_range": in_range}
+            result["bones"][bone_name_full] = {"volume_mm3": vol_mm3, "in_range": in_range}
 
     except Exception as e:
         result["flags"].append(f"MASK_ERROR: {e}")
@@ -117,14 +144,19 @@ def qa_case(case_dir: Path) -> dict:
         bone_key = obj_path.stem.replace("_decimated", "")
         try:
             is_watertight, boundary_edges, verts, faces = check_watertight(str(obj_path))
+            num_comps = check_components(str(obj_path))
             result["meshes"][bone_key] = {
                 "watertight": is_watertight,
                 "boundary_edges": boundary_edges,
                 "vertices": verts,
                 "faces": faces,
+                "components": num_comps
             }
             if not is_watertight:
                 result["flags"].append(f"NOT_WATERTIGHT: {obj_path.name} ({boundary_edges} boundary edges)")
+                result["pass"] = False
+            if num_comps > 1:
+                result["flags"].append(f"MULTI_COMPONENT: {obj_path.name} ({num_comps} components)")
                 result["pass"] = False
         except Exception as e:
             result["flags"].append(f"MESH_ERROR: {obj_path.name}: {e}")
@@ -138,27 +170,40 @@ def qa_case(case_dir: Path) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def print_summary_table(results: list[dict]):
-    print("\n" + "="*95)
-    print(f"{'Case':15} {'Pass':6} {'FOV-Z(mm)':10} {'Femur(mm³)':12} {'Tibia(mm³)':12} {'Patella(mm³)':13} {'Watertight':10} Flags")
-    print("-"*95)
+    print("\n" + "="*125)
+    print(f"{'Case':15} {'Pass':6} {'Lat':6} {'FOV-Z(mm)':10} {'F_L(mm3)':10} {'F_R(mm3)':10} {'T_L(mm3)':10} {'T_R(mm3)':10} {'Watertight':10} {'Components':12}")
+    print("-" * 125)
     for r in results:
         bones  = r.get("bones", {})
         meshes = r.get("meshes", {})
-        femur  = bones.get("femur",   {}).get("volume_mm3", "N/A")
-        tibia  = bones.get("tibia",   {}).get("volume_mm3", "N/A")
-        patella= bones.get("patella", {}).get("volume_mm3", "N/A")
+        
+        def bvol(n):
+            v = bones.get(n, {}).get("volume_mm3", "N/A")
+            return f"{v}" if v != "N/A" else "-"
+            
+        f_l = bvol("femur_left")
+        f_r = bvol("femur_right")
+        t_l = bvol("tibia_left")
+        t_r = bvol("tibia_right")
         
         is_wt = all(m.get("watertight", False) for m in meshes.values()) if meshes else False
         wt_str = "Yes" if is_wt and meshes else "No"
         
-        status = "✓" if r["pass"] else "✗"
+        total_meshes = len(meshes)
+        single_comp = sum(1 for m in meshes.values() if m.get("components", 0) == 1)
+        comp_str = f"{single_comp}/{total_meshes} single" if meshes else "-"
+        
+        status = get_symbol(r["pass"])
+        lat = "Bi" if r.get("laterality") == "bilateral" else ("L" if r.get("laterality") == "left" else ("R" if r.get("laterality") == "right" else "?"))
         z_ext  = str(r.get("z_extent_mm", "N/A"))
-        flags  = "; ".join(r["flags"]) if r["flags"] else "—"
-        print(f"{r['case_id']:15} {status:6} {z_ext:10} {str(femur):12} {str(tibia):12} {str(patella):13} {wt_str:10} {flags}")
-    print("="*95)
+        flags  = "; ".join(r["flags"]) if r["flags"] else "-"
+        
+        print(f"{r['case_id']:15} {status:6} {lat:6} {z_ext:10} {f_l:10} {f_r:10} {t_l:10} {t_r:10} {wt_str:10} {comp_str:12}")
+        if flags != "-":
+            print(f"  Flags: {flags}")
+    print("=" * 110)
     passed = sum(1 for r in results if r["pass"])
     print(f"\nSummary: {passed}/{len(results)} cases passed all QA checks.")
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
@@ -189,13 +234,11 @@ def main():
         result = qa_case(case_dir)
         results.append(result)
 
-    # Write JSON
     Path(args.qa_json).parent.mkdir(parents=True, exist_ok=True)
     with open(args.qa_json, "w") as f:
         json.dump(results, f, indent=2)
     logger.info(f"QA JSON written: {args.qa_json}")
 
-    # Print human-readable table
     print_summary_table(results)
 
     all_pass = all(r["pass"] for r in results)

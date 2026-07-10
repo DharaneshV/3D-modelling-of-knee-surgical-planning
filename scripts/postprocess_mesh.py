@@ -29,9 +29,11 @@ from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
-
-BONE_LABELS = {1: "femur", 2: "tibia", 3: "patella"}
-
+BONE_LABELS = {
+    1: "femur_left", 2: "femur_right",
+    3: "tibia_left", 4: "tibia_right",
+    5: "patella_left", 6: "patella_right"
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1: Morphological closing on the mask

@@ -8,8 +8,9 @@ from pathlib import Path
 import glob
 import SimpleITK as sitk
 from fastapi.responses import Response, JSONResponse, FileResponse
-from backend.pipeline_runner import run_pipeline_async, get_status_path, UPLOADS_DIR, MESHES_DIR, TASKS_DIR
+from backend.pipeline_runner import run_pipeline_async, get_status_path, update_status, check_cache, UPLOADS_DIR, MESHES_DIR, TASKS_DIR
 from backend.modality_detector import detect_modality
+import shutil
 
 app = FastAPI()
 
@@ -45,12 +46,48 @@ async def process_upload(file: UploadFile = File(...)):
             "reason": mod_result["reason"]
         })
         
-    # Start the async pipeline
-    run_pipeline_async(task_id, str(file_path))
+    # Check cache
+    cache_result = check_cache(str(file_path))
+    if cache_result["hit"]:
+        old_task_id = cache_result["old_task_id"]
+        old_mesh_dir = MESHES_DIR / old_task_id
+        new_mesh_dir = MESHES_DIR / task_id
+        
+        # Copy artifacts
+        if old_mesh_dir.exists():
+            shutil.copytree(old_mesh_dir, new_mesh_dir)
+            
+            # Load the old manifest
+            manifest_path = new_mesh_dir / "manifest.json"
+            manifest = None
+            if manifest_path.exists():
+                with open(manifest_path, "r") as f:
+                    manifest = json.load(f)
+                    
+                # Update task_id inside the manifest
+                manifest["task_id"] = task_id
+                with open(manifest_path, "w") as f:
+                    json.dump(manifest, f, indent=4)
+            
+            # Mark complete immediately
+            update_status(task_id, "complete", modality=mod_result["modality"], manifest=manifest)
+            
+            return {
+                "task_id": task_id,
+                "modality": mod_result["modality"],
+                "cached": True,
+                "message": f"Previously processed — loaded instantly."
+            }
+        else:
+            print(f"Warning: Cache hit but old artifacts missing for {old_task_id}. Reprocessing.")
+            
+    # Cache miss or missing artifacts -> Start the async pipeline
+    run_pipeline_async(task_id, str(file_path), cache_result["hash"])
     
     return {
         "task_id": task_id,
         "modality": mod_result["modality"],
+        "cached": False,
         "message": f"Detected {mod_result['modality']} scan. Processing started."
     }
 

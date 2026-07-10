@@ -107,7 +107,28 @@
                 <div class="panel viewer-container">
                     <h3>3D Segmentation Model</h3>
                     <div class="badge" id="modality-badge-dashboard">CT Scan</div>
-                    <div id="canvas-container"></div>
+                    <div id="dual-viewer-layout" class="dual-viewer-layout">
+                        <!-- Default container for legacy/unilateral fallback -->
+                        <div id="canvas-container" class="knee-canvas-container"></div>
+                        
+                        <!-- Left Knee Viewport -->
+                        <div id="left-knee-panel" class="knee-panel" style="display: none;">
+                            <div class="knee-panel-header">
+                                <h4>Left Knee</h4>
+                                <button class="btn-secondary btn-sm reset-view-btn" id="reset-left-btn">Reset View</button>
+                            </div>
+                            <div id="left-canvas-container" class="knee-canvas-container"></div>
+                        </div>
+                        
+                        <!-- Right Knee Viewport -->
+                        <div id="right-knee-panel" class="knee-panel" style="display: none;">
+                            <div class="knee-panel-header">
+                                <h4>Right Knee</h4>
+                                <button class="btn-secondary btn-sm reset-view-btn" id="reset-right-btn">Reset View</button>
+                            </div>
+                            <div id="right-canvas-container" class="knee-canvas-container"></div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Panel 3: Report -->
@@ -125,6 +146,7 @@
                         <div class="report-header">
                             <div class="report-row"><span>Task ID:</span> <span id="r-task-id"></span></div>
                             <div class="report-row"><span>Scan Date:</span> <span id="r-scan-date"></span></div>
+                            <div class="report-row"><span>Original File:</span> <span id="r-file-name"></span></div>
                             <div class="report-row"><span>Modality:</span> <span id="r-modality"></span></div>
                             <div class="report-row"><span>Laterality:</span> <span id="r-laterality"></span></div>
                         </div>
@@ -156,8 +178,10 @@
         <!-- Processing Overlay -->
         <div class="processing-overlay" id="processing-overlay" style="display: none;">
             <div class="glass-panel">
-                <div class="modality-badge" id="modality-badge">Detecting...</div>
-                
+                <div style="display: flex; gap: 0.5rem; justify-content: center; margin-bottom: 1rem;">
+                    <div class="modality-badge" id="modality-badge">Detecting...</div>
+                    <div class="modality-badge" id="laterality-badge" style="display: none; background: rgba(52, 152, 219, 0.2); color: #3498db; border-color: rgba(52, 152, 219, 0.4);"></div>
+                </div>
                 <div class="spinner"></div>
                 <h3 id="processing-text">Uploading File...</h3>
                 
