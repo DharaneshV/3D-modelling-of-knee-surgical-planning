@@ -34,7 +34,7 @@ body {
 
 .app-container {
     width: 100%;
-    max-width: 1000px;
+    max-width: 95%; /* Relaxed constraint to use window space */
     padding: 2rem;
     display: flex;
     flex-direction: column;
@@ -208,15 +208,11 @@ button {
 }
 
 .slice-panel {
-    grid-column: 1;
-    grid-row: 1;
     display: flex;
     flex-direction: column;
 }
 
 .viewer-container {
-    grid-column: 2;
-    grid-row: 1;
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: 24px;
@@ -282,7 +278,7 @@ button {
 #modality-badge-dashboard {
     position: absolute;
     top: 1rem;
-    left: 1rem;
+    right: 1rem;
     z-index: 10;
 }
 
@@ -354,14 +350,6 @@ button {
     color: var(--danger);
 }
 /* Slice Viewer Styles */
-.dashboard-section {
-    grid-template-columns: 1fr 1fr !important;
-    grid-template-rows: auto auto !important;
-    gap: 2rem;
-}
-.slice-panel { grid-column: 1; grid-row: 1; }
-.viewer-container { grid-column: 2; grid-row: 1; }
-.sidebar-results { grid-column: 1 / span 2; grid-row: 2; }
 
 .panel {
     background: var(--glass-bg);
@@ -532,3 +520,27 @@ button {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
 }
+
+/* Bilateral Layout */
+.dashboard-section.bilateral {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+.dashboard-section.bilateral .sidebar-results {
+    grid-column: 1 / span 3;
+}
+@media (max-width: 1024px) {
+    .dashboard-section, .dashboard-section.bilateral {
+        grid-template-columns: 1fr;
+    }
+    .dashboard-section .viewer-container {
+        grid-column: 1;
+    }
+    .sidebar-results, .dashboard-section.bilateral .sidebar-results {
+        grid-column: 1;
+    }
+}
+
+.dashboard-section .sidebar-results {
+    grid-column: 1 / span 2;
+}
+

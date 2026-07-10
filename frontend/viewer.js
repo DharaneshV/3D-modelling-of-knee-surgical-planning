@@ -58,6 +58,7 @@ class KneeViewport {
         this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+        this.resetView(); // Ensure camera reframes correctly after a layout change
     }
     
     resetView() {
@@ -71,7 +72,7 @@ class KneeViewport {
         const maxDim = Math.max(size.x, size.y, size.z);
         const fov = this.camera.fov * (Math.PI / 180);
         let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-        cameraZ *= 1.5;
+        cameraZ *= 1.1; // Reduced from 1.5 so meshes fill more of the viewport
         
         this.camera.position.set(center.x, center.y, center.z + cameraZ);
         this.controls.target.copy(center);
@@ -124,7 +125,8 @@ window.addEventListener("resize", () => {
 });
 
 window.initViewer = async function(taskId) {
-    const layout = document.getElementById("dual-viewer-layout");
+    const dashboardSection = document.getElementById("dashboard-section");
+    const singlePanel = document.getElementById("single-viewer-panel");
     const legacyContainer = document.getElementById("canvas-container");
     const leftPanel = document.getElementById("left-knee-panel");
     const rightPanel = document.getElementById("right-knee-panel");
@@ -146,8 +148,8 @@ window.initViewer = async function(taskId) {
         
         if (leftParts.length > 0 && rightParts.length > 0) {
             // Bilateral
-            layout.classList.add("split");
-            legacyContainer.style.display = "none";
+            dashboardSection.classList.add("bilateral");
+            singlePanel.style.display = "none";
             leftPanel.style.display = "flex";
             rightPanel.style.display = "flex";
             
@@ -167,8 +169,8 @@ window.initViewer = async function(taskId) {
             
         } else {
             // Unilateral
-            layout.classList.remove("split");
-            legacyContainer.style.display = "block";
+            dashboardSection.classList.remove("bilateral");
+            singlePanel.style.display = "flex";
             leftPanel.style.display = "none";
             rightPanel.style.display = "none";
             

@@ -103,32 +103,26 @@
                     </div>
                 </div>
 
-                <!-- Panel 2: 3D Segmentation Model -->
-                <div class="panel viewer-container">
+                <!-- Panel 2: 3D Segmentation Model (Single/Fallback) -->
+                <div class="panel viewer-container" id="single-viewer-panel">
                     <h3>3D Segmentation Model</h3>
                     <div class="badge" id="modality-badge-dashboard">CT Scan</div>
-                    <div id="dual-viewer-layout" class="dual-viewer-layout">
-                        <!-- Default container for legacy/unilateral fallback -->
-                        <div id="canvas-container" class="knee-canvas-container"></div>
-                        
-                        <!-- Left Knee Viewport -->
-                        <div id="left-knee-panel" class="knee-panel" style="display: none;">
-                            <div class="knee-panel-header">
-                                <h4>Left Knee</h4>
-                                <button class="btn-secondary btn-sm reset-view-btn" id="reset-left-btn">Reset View</button>
-                            </div>
-                            <div id="left-canvas-container" class="knee-canvas-container"></div>
-                        </div>
-                        
-                        <!-- Right Knee Viewport -->
-                        <div id="right-knee-panel" class="knee-panel" style="display: none;">
-                            <div class="knee-panel-header">
-                                <h4>Right Knee</h4>
-                                <button class="btn-secondary btn-sm reset-view-btn" id="reset-right-btn">Reset View</button>
-                            </div>
-                            <div id="right-canvas-container" class="knee-canvas-container"></div>
-                        </div>
-                    </div>
+                    <div id="canvas-container" class="knee-canvas-container" style="width: 100%; height: 500px;"></div>
+                </div>
+                
+                <!-- Panel 2a: Left Knee 3D -->
+                <div class="panel viewer-container" id="left-knee-panel" style="display: none;">
+                    <h3>Left Knee 3D</h3>
+                    <div class="badge" style="position: absolute; top: 1rem; right: 1rem; z-index: 10;">CT Scan</div>
+                    <button class="btn-secondary btn-sm reset-view-btn" id="reset-left-btn" style="position: absolute; top: 1rem; left: 1rem; z-index: 10;">Reset View</button>
+                    <div id="left-canvas-container" class="knee-canvas-container" style="width: 100%; height: 500px;"></div>
+                </div>
+                
+                <!-- Panel 2b: Right Knee 3D -->
+                <div class="panel viewer-container" id="right-knee-panel" style="display: none;">
+                    <h3>Right Knee 3D</h3>
+                    <button class="btn-secondary btn-sm reset-view-btn" id="reset-right-btn" style="position: absolute; top: 1rem; left: 1rem; z-index: 10;">Reset View</button>
+                    <div id="right-canvas-container" class="knee-canvas-container" style="width: 100%; height: 500px;"></div>
                 </div>
                 
                 <!-- Panel 3: Report -->

@@ -1,0 +1,15 @@
+{
+    "laterality": "bilateral",
+    "sides_present": [
+        "left",
+        "right"
+    ],
+    "voxel_counts": {
+        "femur_left": 379596,
+        "femur_right": 377580,
+        "tibia_left": 349910,
+        "tibia_right": 351343,
+        "patella_left": 18628,
+        "patella_right": 18817
+    }
+}
