@@ -17,17 +17,70 @@ try:
 except ImportError:
     HAS_SITK = False
 
-def calculate_anatomic_axis(vertices):
+def calculate_anatomic_axis(vertices, reference_dir=None):
     """Compute the anatomical axis vector using PCA."""
     centered = vertices - np.mean(vertices, axis=0)
     cov = np.cov(centered, rowvar=False)
     eigvals, eigvecs = np.linalg.eigh(cov)
     # The primary axis corresponds to the eigenvector with the largest eigenvalue
     primary_axis = eigvecs[:, np.argmax(eigvals)]
-    # Standardize direction to point superiorly (positive Z)
-    if primary_axis[2] < 0:
-        primary_axis = -primary_axis
+    
+    if reference_dir is not None:
+        if np.dot(primary_axis, reference_dir) < 0:
+            primary_axis = -primary_axis
+    else:
+        # Fallback to positive Z if no reference is given
+        if primary_axis[2] < 0:
+            primary_axis = -primary_axis
+            
     return primary_axis
+
+def get_roi_sizing(vertices, long_axis, is_femur=True, side='unknown'):
+    # Project all vertices onto the longitudinal axis to find min/max
+    projections = np.dot(vertices, long_axis)
+    min_p, max_p = np.min(projections), np.max(projections)
+    length = max_p - min_p
+    
+    # Proportional ROI: 10% of length, capped at 30mm
+    roi_depth = min(length * 0.10, 30.0)
+    
+    print(f"DEBUG [{side}]: {'Femur' if is_femur else 'Tibia'} total length = {length:.1f}mm, ROI depth used = {roi_depth:.1f}mm")
+    
+    # Femur ROI is the distal end (lowest projection if axis points superiorly)
+    # Tibia ROI is the proximal end (highest projection if axis points superiorly)
+    if is_femur:
+        mask = projections <= (min_p + roi_depth)
+    else:
+        mask = projections >= (max_p - roi_depth)
+        
+    roi_verts = vertices[mask]
+    
+    if len(roi_verts) < 3:
+        return 0.0, 0.0 # fallback
+        
+    # Subtract mean
+    centered = roi_verts - np.mean(roi_verts, axis=0)
+    
+    # Project onto plane orthogonal to longitudinal axis (2D cross-section)
+    # We can just remove the longitudinal component
+    long_comp = np.outer(np.dot(centered, long_axis), long_axis)
+    cross_section = centered - long_comp
+    
+    # Compute 2D PCA on the cross section
+    cov = np.cov(cross_section, rowvar=False)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    
+    # The largest two eigenvectors represent ML and AP
+    # Since we are in 3D, one eigenvalue will be near 0 (the longitudinal one we subtracted)
+    sorted_indices = np.argsort(eigvals)[::-1]
+    ml_axis = eigvecs[:, sorted_indices[0]]
+    ap_axis = eigvecs[:, sorted_indices[1]]
+    
+    # ML is the widest spread, AP is the next widest
+    ml_spread = np.ptp(np.dot(roi_verts, ml_axis))
+    ap_spread = np.ptp(np.dot(roi_verts, ap_axis))
+    
+    return round(float(ml_spread), 1), round(float(ap_spread), 1)
 
 def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict):
     """Calculate metrics for a specific side (left or right)."""
@@ -73,37 +126,73 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict):
             femur = trimesh.load(str(f_mesh_path))
             tibia = trimesh.load(str(t_mesh_path))
             
-            # Sizing (Bounding Box spreads)
-            metrics["femur_ml"] = round(float(np.ptp(femur.vertices[:, 0])), 1)
-            metrics["femur_ap"] = round(float(np.ptp(femur.vertices[:, 1])), 1)
-            metrics["tibia_ml"] = round(float(np.ptp(tibia.vertices[:, 0])), 1)
-            metrics["tibia_ap"] = round(float(np.ptp(tibia.vertices[:, 1])), 1)
+            f_centroid = np.mean(femur.vertices, axis=0)
+            t_centroid = np.mean(tibia.vertices, axis=0)
+            up_vector = f_centroid - t_centroid
+            if np.linalg.norm(up_vector) > 0:
+                up_vector = up_vector / np.linalg.norm(up_vector)
             
-            # Anatomic Axis Angle via PCA
-            f_axis = calculate_anatomic_axis(femur.vertices)
-            t_axis = calculate_anatomic_axis(tibia.vertices)
+            # Anatomic Axis Angle via PCA (3D)
+            f_axis = calculate_anatomic_axis(femur.vertices, reference_dir=up_vector)
+            t_axis = calculate_anatomic_axis(tibia.vertices, reference_dir=up_vector)
+            
+            # Verify symmetry/consistency (log only)
+            print(f"DEBUG [{side}]: Femur primary axis: {f_axis}")
+            print(f"DEBUG [{side}]: Tibia primary axis: {t_axis}")
+            
             cos_theta = np.dot(f_axis, t_axis) / (np.linalg.norm(f_axis) * np.linalg.norm(t_axis))
             cos_theta = np.clip(cos_theta, -1.0, 1.0)
             metrics["alignment_angle"] = round(float(np.degrees(np.arccos(cos_theta))), 1)
             
+            # Sizing (Bounding Box spreads) via PCA on proportional ROI
+            metrics["femur_ml"], metrics["femur_ap"] = get_roi_sizing(femur.vertices, f_axis, is_femur=True, side=side)
+            metrics["tibia_ml"], metrics["tibia_ap"] = get_roi_sizing(tibia.vertices, t_axis, is_femur=False, side=side)
+            
             # JSW Calculation
-            joint_z = np.percentile(tibia.vertices[:, 2], 99)
-            f_mask = (femur.vertices[:, 2] >= joint_z - 20) & (femur.vertices[:, 2] <= joint_z + 40)
-            t_mask = (tibia.vertices[:, 2] >= joint_z - 40) & (tibia.vertices[:, 2] <= joint_z + 20)
+            # Project onto tibia axis to find joint space region
+            t_proj = np.dot(tibia.vertices, t_axis)
+            f_proj = np.dot(femur.vertices, t_axis)
+            joint_z = np.max(t_proj)
+            
+            f_mask = (f_proj >= joint_z - 20) & (f_proj <= joint_z + 40)
+            t_mask = (t_proj >= joint_z - 40) & (t_proj <= joint_z + 20)
             
             f_pts = femur.vertices[f_mask]
             t_pts = tibia.vertices[t_mask]
             
+            metrics["jsw"] = 0.0
+            metrics["jsw_overlap"] = False
+            
             if len(f_pts) > 0 and len(t_pts) > 0:
-                tree = cKDTree(t_pts)
-                dists, _ = tree.query(f_pts)
-                metrics["jsw"] = round(float(np.min(dists)), 2)
+                try:
+                    import pyvista as pv
+                    pv_femur = pv.wrap(femur)
+                    pv_tibia = pv.wrap(tibia)
+                    collision, n_contacts = pv_femur.collision(pv_tibia)
+                    is_collision = n_contacts > 0
+                except Exception as e:
+                    print(f"Collision check failed, falling back to KDTree dist: {e}")
+                    is_collision = False
+                
+                if is_collision:
+                    metrics["jsw_overlap"] = True
+                    metrics["jsw"] = 0.0
+                else:
+                    tree = cKDTree(t_pts)
+                    closest_dists, _ = tree.query(f_pts)
+                    metrics["jsw"] = round(float(np.min(closest_dists)), 2)
+                    
         except Exception as e:
             print(f"Error calculating mesh metrics for {side}: {e}")
             
     return metrics
 
 def build_metrics_list(metrics, modality):
+    jsw_caveat = "Minimum distance at joint space"
+    if metrics.get("jsw_overlap"):
+        # Explicit stopgap flag (TODO: fix upstream meshing overlapping issue via boolean clipping)
+        jsw_caveat = "Measurement uncertain — mesh overlap detected"
+        
     return [
         {
             "name": "Femur Bone Volume",
@@ -123,7 +212,7 @@ def build_metrics_list(metrics, modality):
         {
             "name": "Joint Space Width (JSW)",
             "value": f"{metrics['jsw']} mm",
-            "caveat": "Minimum distance at joint space"
+            "caveat": jsw_caveat
         },
         {
             "name": "Anatomic Axis Angle",

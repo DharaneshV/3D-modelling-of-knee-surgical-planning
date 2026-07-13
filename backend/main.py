@@ -59,6 +59,12 @@ async def process_upload(file: UploadFile = File(...)):
         if old_mesh_dir.exists():
             shutil.copytree(old_mesh_dir, new_mesh_dir)
             
+            # Rename files containing the old_task_id (e.g. the mask file)
+            for f in new_mesh_dir.iterdir():
+                if f.is_file() and old_task_id in f.name:
+                    new_name = f.name.replace(old_task_id, task_id)
+                    f.rename(new_mesh_dir / new_name)
+                    
             # Load the old manifest
             manifest_path = new_mesh_dir / "manifest.json"
             manifest = None
@@ -71,9 +77,27 @@ async def process_upload(file: UploadFile = File(...)):
                 with open(manifest_path, "w") as f:
                     json.dump(manifest, f, indent=4)
             
-            # Mark complete immediately
-            update_status(task_id, "complete", modality=mod_result["modality"], manifest=manifest)
+            # Decouple report generation from cache: always regenerate the report on a cache hit
+            update_status(task_id, "generating_report", modality=mod_result["modality"], manifest=manifest)
             
+            def run_report_async():
+                import subprocess
+                import sys
+                try:
+                    python_exe = sys.executable
+                    report_cmd = [
+                        python_exe, "backend/report_generator.py",
+                        task_id, mod_result["modality"], str(file_path), str(new_mesh_dir)
+                    ]
+                    res = subprocess.run(report_cmd, capture_output=True, text=True)
+                    if res.returncode != 0:
+                        raise Exception(res.stderr.strip())
+                    update_status(task_id, "complete", modality=mod_result["modality"], manifest=manifest)
+                except Exception as e:
+                    update_status(task_id, "failed", reason=f"report_generation_error: {str(e)}", modality=mod_result["modality"])
+            
+            import threading
+            threading.Thread(target=run_report_async, daemon=True).start()
             return {
                 "task_id": task_id,
                 "modality": mod_result["modality"],
@@ -215,10 +239,16 @@ async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: 
     file_path = files[0]
     
     try:
-        # For performance, only load the slice, not the whole volume if possible.
-        # SimpleITK has limited support for partial IO, so we might just load the whole volume 
-        # and cache it or just load it fast.
-        img = sitk.ReadImage(file_path)
+        # Cache the volume in memory to avoid reading from disk on every slice request
+        global _volume_cache
+        if "_volume_cache" not in globals():
+            _volume_cache = {"task_id": None, "image": None}
+            
+        if _volume_cache["task_id"] != task_id:
+            _volume_cache["task_id"] = task_id
+            _volume_cache["image"] = sitk.ReadImage(file_path)
+            
+        img = _volume_cache["image"]
         size = img.GetSize()
         
         # Bounds check
@@ -257,6 +287,10 @@ async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: 
         # Apply window
         windowed = sitk.IntensityWindowing(slice_img, windowMinimum=wc - ww/2.0, windowMaximum=wc + ww/2.0, outputMinimum=0, outputMaximum=255)
         windowed = sitk.Cast(windowed, sitk.sitkUInt8)
+        
+        # Orient coronal and sagittal properly (upside down by default due to coordinate systems)
+        if plane in ["coronal", "sagittal"]:
+            windowed = sitk.Flip(windowed, [False, True])
         
         # Save to temp file and return
         cache_dir = TASKS_DIR / task_id / "slices"
