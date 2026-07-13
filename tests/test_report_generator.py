@@ -80,5 +80,67 @@ class TestReportGeneratorMetrics(unittest.TestCase):
         self.assertAlmostEqual(ml_rot, 80.0, places=1)
         self.assertAlmostEqual(ap_rot, 50.0, places=1)
 
+    def test_mri_single_knee_metrics(self):
+        from backend.report_generator import calculate_side_metrics
+        import SimpleITK as sitk
+        from pathlib import Path
+        import shutil
+        
+        # Create a mock task dir
+        task_id = "temp_mri_metrics"
+        mesh_dir = Path("tests/temp_mri_metrics")
+        mesh_dir.mkdir(exist_ok=True)
+        
+        # 1. Mock MRI mask with labels 1, 3
+        arr = np.zeros((20, 20, 20), dtype=np.uint8)
+        arr[5:15, 5:15, 10:20] = 1 # Femur (1000 vox)
+        arr[5:15, 5:15, 0:8] = 3   # Tibia (800 vox)
+        
+        img = sitk.GetImageFromArray(arr)
+        img.SetSpacing((1.0, 1.0, 1.0))
+        sitk.WriteImage(img, str(mesh_dir / f"{task_id}_mask.nii.gz"))
+        
+        # 2. Mock MRI meshes
+        f_mesh = trimesh.creation.box(extents=[10, 10, 10])
+        f_mesh.apply_translation([10, 10, 15])
+        f_mesh.export(str(mesh_dir / "femur_unknown_decimated.obj"))
+        
+        t_mesh = trimesh.creation.box(extents=[10, 10, 8])
+        t_mesh.apply_translation([10, 10, 4])
+        t_mesh.export(str(mesh_dir / "tibia_unknown_decimated.obj"))
+        
+        # Call function
+        metrics = calculate_side_metrics(mesh_dir, "unknown", {}, modality="MRI")
+        
+        # Verify loud failure was averted and volume calculated
+        self.assertEqual(metrics["femur_vol"], 1000)
+        self.assertEqual(metrics["tibia_vol"], 800)
+        self.assertEqual(metrics["patella_vol"], "N/A - Not segmented")
+        
+        # Verify geometry JSW
+        self.assertFalse(metrics["jsw_overlap"])
+        self.assertTrue(isinstance(metrics["jsw"], float) and metrics["jsw"] > 0)
+        self.assertTrue(isinstance(metrics["femur_ml"], float))
+        
+        shutil.rmtree(mesh_dir)
+    def test_mri_missing_meshes_fallback(self):
+        from backend.report_generator import calculate_side_metrics
+        from pathlib import Path
+        import shutil
+        
+        # Create a mock task dir without any meshes or mask
+        mesh_dir = Path("tests/temp_mri_missing")
+        mesh_dir.mkdir(exist_ok=True)
+        
+        # Call function
+        metrics = calculate_side_metrics(mesh_dir, "unknown", {}, modality="MRI")
+        
+        # Assert loud failure N/A is returned, not 0.0 or a crash
+        self.assertEqual(metrics["femur_vol"], "N/A - Mesh data missing")
+        self.assertEqual(metrics["jsw"], "N/A - Mesh data missing")
+        self.assertEqual(metrics["alignment_angle"], "N/A - Mesh data missing")
+        
+        shutil.rmtree(mesh_dir)
 if __name__ == '__main__':
     unittest.main()
+

@@ -119,9 +119,11 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         seg_cmd = [python_exe, "src/segmentation/run_mri_segmentation.py", "--input", file_path, "--output", mask_output]
         track = "mri_cartilage"
         expected_parts = [
-            {"file": "femoral_cartilage_decimated.obj", "label": "Femoral Cartilage", "color": "#e74c3c"},
-            {"file": "medial_tibial_cartilage_decimated.obj", "label": "Medial Tibial Cartilage", "color": "#2ecc71"},
-            {"file": "lateral_tibial_cartilage_decimated.obj", "label": "Lateral Tibial Cartilage", "color": "#3498db"}
+            {"file": "femur_unknown_decimated.obj", "label": "Femur Bone", "color": "#e74c3c"},
+            {"file": "tibia_unknown_decimated.obj", "label": "Tibia Bone", "color": "#2ecc71"},
+            {"file": "femoral_cartilage_decimated.obj", "label": "Femoral Cartilage", "color": "#ff9f43"},
+            {"file": "medial_tibial_cartilage_decimated.obj", "label": "Medial Tibial Cartilage", "color": "#00d2d3"},
+            {"file": "lateral_tibial_cartilage_decimated.obj", "label": "Lateral Tibial Cartilage", "color": "#54a0ff"}
         ]
         
         result = subprocess.run(seg_cmd, capture_output=True, text=True)
