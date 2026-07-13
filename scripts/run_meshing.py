@@ -17,7 +17,9 @@ LABEL_MAPS = {
         "patella_left": 5, "patella_right": 6
     },
     "mri_cartilage": {
+        "femur_unknown": 1,
         "femoral_cartilage": 2, 
+        "tibia_unknown": 3,
         "medial_tibial_cartilage": 4, 
         "lateral_tibial_cartilage": 5
     }

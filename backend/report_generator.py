@@ -82,15 +82,15 @@ def get_roi_sizing(vertices, long_axis, is_femur=True, side='unknown'):
     
     return round(float(ml_spread), 1), round(float(ap_spread), 1)
 
-def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict):
+def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, modality: str):
     """Calculate metrics for a specific side (left or right)."""
     metrics = {
-        "femur_vol": 0, "tibia_vol": 0, "patella_vol": 0,
-        "jsw": 0.0,
-        "femur_ml": 0.0, "femur_ap": 0.0,
-        "tibia_ml": 0.0, "tibia_ap": 0.0,
-        "alignment_angle": 0.0,
-        "medial_thick": 2.2, "lateral_thick": 2.4, "trochlear_thick": 2.1 # Mocked/N/A for CT
+        "femur_vol": "N/A - Mesh data missing", "tibia_vol": "N/A - Mesh data missing", "patella_vol": "N/A - Not segmented" if modality == "MRI" else "N/A - Mesh data missing",
+        "jsw": "N/A - Mesh data missing",
+        "femur_ml": "N/A - Mesh data missing", "femur_ap": "N/A - Mesh data missing",
+        "tibia_ml": "N/A - Mesh data missing", "tibia_ap": "N/A - Mesh data missing",
+        "alignment_angle": "N/A - Mesh data missing",
+        "medial_thick": "2.2", "lateral_thick": "2.4", "trochlear_thick": "2.1" # Mocked/N/A for CT
     }
     
     # 1. Volumes from summary if available, else 0
@@ -107,13 +107,17 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict):
             voxel_vol_mm3 = spacing[0] * spacing[1] * spacing[2]
             
             # Map side to labels
-            f_label = 1 if side == "left" else 2
-            t_label = 3 if side == "left" else 4
-            p_label = 5 if side == "left" else 6
+            if modality == "MRI":
+                f_label, t_label, p_label = 1, 3, -1
+            else:
+                f_label = 1 if side == "left" else 2
+                t_label = 3 if side == "left" else 4
+                p_label = 5 if side == "left" else 6
             
             metrics["femur_vol"] = int(np.sum(arr == f_label) * voxel_vol_mm3)
             metrics["tibia_vol"] = int(np.sum(arr == t_label) * voxel_vol_mm3)
-            metrics["patella_vol"] = int(np.sum(arr == p_label) * voxel_vol_mm3)
+            if modality != "MRI":
+                metrics["patella_vol"] = int(np.sum(arr == p_label) * voxel_vol_mm3)
         except Exception as e:
             print(f"Error reading mask for volumes: {e}")
             
@@ -188,51 +192,61 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict):
     return metrics
 
 def build_metrics_list(metrics, modality):
+    def format_val(val, unit=""):
+        if isinstance(val, str) and val.startswith("N/A"):
+            return val
+        if "vol" in unit:
+            return f"{float(val) / 1000.0:.1f} cm³"
+        return f"{val}{unit}"
+
     jsw_caveat = "Minimum distance at joint space"
     if metrics.get("jsw_overlap"):
-        # Explicit stopgap flag (TODO: fix upstream meshing overlapping issue via boolean clipping)
         jsw_caveat = "Measurement uncertain — mesh overlap detected"
+    elif isinstance(metrics["jsw"], str) and "N/A" in metrics["jsw"]:
+        jsw_caveat = "Required mesh file missing"
         
+    cart_val = "N/A (CT modality)" if modality == "CT" else f"Medial {metrics['medial_thick']} mm / Lateral {metrics['lateral_thick']} mm"
+
     return [
         {
             "name": "Femur Bone Volume",
-            "value": f"{metrics['femur_vol'] / 1000.0:.1f} cm³",
+            "value": format_val(metrics['femur_vol'], "vol"),
             "caveat": ""
         },
         {
             "name": "Tibia Bone Volume",
-            "value": f"{metrics['tibia_vol'] / 1000.0:.1f} cm³",
+            "value": format_val(metrics['tibia_vol'], "vol"),
             "caveat": ""
         },
         {
             "name": "Patella Bone Volume",
-            "value": f"{metrics['patella_vol'] / 1000.0:.1f} cm³",
+            "value": format_val(metrics['patella_vol'], "vol"),
             "caveat": ""
         },
         {
             "name": "Joint Space Width (JSW)",
-            "value": f"{metrics['jsw']} mm",
+            "value": format_val(metrics['jsw'], " mm"),
             "caveat": jsw_caveat
         },
         {
             "name": "Anatomic Axis Angle",
-            "value": f"{metrics['alignment_angle']}°",
-            "caveat": "Calculated via PCA of bone shafts"
+            "value": format_val(metrics['alignment_angle'], "°"),
+            "caveat": "Calculated via PCA of bone shafts" if not isinstance(metrics['alignment_angle'], str) else "Required mesh file missing"
         },
         {
             "name": "Femur ML Width / AP Depth",
-            "value": f"{metrics['femur_ml']} mm / {metrics['femur_ap']} mm",
-            "caveat": "Implant sizing reference dimensions"
+            "value": f"{metrics['femur_ml']} mm / {metrics['femur_ap']} mm" if not isinstance(metrics['femur_ml'], str) else metrics['femur_ml'],
+            "caveat": "Implant sizing reference dimensions" if not isinstance(metrics['femur_ml'], str) else "Required mesh file missing"
         },
         {
             "name": "Tibia ML Width / AP Depth",
-            "value": f"{metrics['tibia_ml']} mm / {metrics['tibia_ap']} mm",
-            "caveat": "Implant sizing reference dimensions"
+            "value": f"{metrics['tibia_ml']} mm / {metrics['tibia_ap']} mm" if not isinstance(metrics['tibia_ml'], str) else metrics['tibia_ml'],
+            "caveat": "Implant sizing reference dimensions" if not isinstance(metrics['tibia_ml'], str) else "Required mesh file missing"
         },
         {
             "name": "Cartilage Thickness",
-            "value": "N/A (CT modality)" if modality == "CT" else "Calculated",
-            "caveat": "Requires 3D DESS MRI modality for segmentation"
+            "value": cart_val,
+            "caveat": "Requires 3D DESS MRI modality for segmentation" if modality == "CT" else ""
         }
     ]
 
@@ -250,23 +264,29 @@ def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: 
     sides_present = laterality_summary.get("sides_present", [])
     
     if not sides_present:
-        sides_present = ["left"] # Fallback if summary is missing
+        sides_present = ["unknown"] if modality == "MRI" else ["left"] # Fallback if summary is missing
         
     all_metrics = {}
     for side in sides_present:
-        all_metrics[side] = calculate_side_metrics(Path(mesh_dir), side, laterality_summary)
+        all_metrics[side] = calculate_side_metrics(Path(mesh_dir), side, laterality_summary, modality)
         
     # Impression logic
     impressions = ["Quantitative knee geometry analysis completed successfully."]
     
     for side in sides_present:
         m = all_metrics[side]
-        side_label = side.capitalize()
-        if m["jsw"] < 2.0:
+        side_label = side.capitalize() if laterality == "bilateral" else "Single Knee"
+        if isinstance(m["jsw"], str) and "N/A" in m["jsw"]:
+            impressions.append(f"[{side_label}] Joint Space Width could not be measured (missing mesh data).")
+        elif m["jsw"] < 2.0:
             impressions.append(f"[{side_label}] Joint Space Width measured at {m['jsw']}mm, indicating joint space narrowing compared to the typical 2.0-6.0mm range.")
         else:
             impressions.append(f"[{side_label}] Joint Space Width measured at {m['jsw']}mm, which is within the typical 2.0-6.0mm range.")
-        impressions.append(f"[{side_label}] Anatomic axis alignment angle is {m['alignment_angle']} degrees.")
+            
+        if isinstance(m["alignment_angle"], str) and "N/A" in m["alignment_angle"]:
+            impressions.append(f"[{side_label}] Anatomic axis alignment angle could not be measured.")
+        else:
+            impressions.append(f"[{side_label}] Anatomic axis alignment angle is {m['alignment_angle']} degrees.")
         
     impressions.append(
         "Clinical correlation and radiologist review are required for diagnostic interpretation; "
@@ -286,17 +306,14 @@ def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: 
     }
     
     # Build flat metrics for legacy UI compatibility
-    if laterality == "bilateral":
-        for side in sides_present:
-            for item in data_dict["metrics_by_side"][side]:
-                data_dict["metrics"].append({
-                    "name": f"[{side.capitalize()}] {item['name']}",
-                    "value": item["value"],
-                    "caveat": item["caveat"]
-                })
-    else:
-        side = sides_present[0]
-        data_dict["metrics"] = data_dict["metrics_by_side"][side]
+    for side in sides_present:
+        prefix = f"[{side.capitalize()}] " if laterality == "bilateral" else "[Single Knee] "
+        for item in data_dict["metrics_by_side"][side]:
+            data_dict["metrics"].append({
+                "name": f"{prefix}{item['name']}",
+                "value": item["value"],
+                "caveat": item["caveat"]
+            })
     
     # Save to JSON
     json_path = Path(mesh_dir) / "report.json"

@@ -78,9 +78,15 @@ planeBtns.forEach(btn => {
     });
 });
 
+let sliceDebounceTimeout;
 sliceSlider.addEventListener('input', () => {
     if (!volumeInfo) return;
     sliceLabel.textContent = `${sliceSlider.value}/${volumeInfo.num_slices[currentPlane] - 1}`;
+    
+    clearTimeout(sliceDebounceTimeout);
+    sliceDebounceTimeout = setTimeout(() => {
+        updateSliceImage();
+    }, 30);
 });
 
 sliceSlider.addEventListener('change', updateSliceImage);
