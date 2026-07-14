@@ -133,15 +133,15 @@ def qa_case(case_dir: Path) -> dict:
         result["pass"] = False
         return result
 
-    obj_files = sorted(mesh_dir.glob("*_decimated.obj"))
+    obj_files = sorted(mesh_dir.glob("*.obj"))
     if not obj_files:
-        result["flags"].append("MISSING: no *_decimated.obj files")
+        result["flags"].append("MISSING: no *.obj files")
         result["pass"] = False
         return result
 
     result["meshes"] = {}
     for obj_path in obj_files:
-        bone_key = obj_path.stem.replace("_decimated", "")
+        bone_key = obj_path.stem
         try:
             is_watertight, boundary_edges, verts, faces = check_watertight(str(obj_path))
             num_comps = check_components(str(obj_path))

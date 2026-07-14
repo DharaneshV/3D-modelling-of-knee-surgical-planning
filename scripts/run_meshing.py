@@ -6,8 +6,9 @@ from pathlib import Path
 # Ensure the root directory is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.mesh.surface_nets import generate_multilabel_mesh
-from src.mesh.processing import apply_taubin_smoothing, decimate_mesh
+from src.mesh.surface_nets import extract_multilabel_surface
+from src.mesh.processing import fill_label_gaps
+import SimpleITK as sitk
 
 # Pre-defined label maps for different tracks
 LABEL_MAPS = {
@@ -42,9 +43,17 @@ def main():
     print(f"Running mesh generation for track: {args.track}")
     print(f"Using label map: {label_map}")
     
+    # 0. Pre-cleanup: fill gaps to prevent overlap
+    print("Running fill_label_gaps...")
+    label_img = sitk.ReadImage(args.input)
+    filled_img = fill_label_gaps(label_img, list(label_map.values()), closing_radius_mm=2.0)
+    
+    filled_path = os.path.join(args.output_dir, f"{base_name}_{args.track}_filled.nii.gz")
+    sitk.WriteImage(filled_img, filled_path)
+    
     # 1. Generate multi-label mesh via Surface Nets
     print("Extracting meshes using vtkSurfaceNets3D...")
-    raw_mesh = generate_multilabel_mesh(args.input, label_map)
+    raw_mesh = extract_multilabel_surface(filled_path, label_map)
     
     # Save the RAW multi-label mesh for reference
     raw_mesh_path = os.path.join(args.output_dir, f"{base_name}_{args.track}_raw.obj")
@@ -71,20 +80,47 @@ def main():
         surf = sub_mesh.extract_surface(algorithm='dataset_surface')
         surf = surf.clean()
         
-        # apply smoothing
-        print(f"Smoothing {label_name}...")
-        smoothed_comp = apply_taubin_smoothing(surf)
-        
-        # apply decimation
-        print(f"Decimating {label_name}...")
-        decimated_comp = decimate_mesh(smoothed_comp, target_reduction=args.decimation_target)
-        
         # Extract largest connected component to drop any noise pinched off during meshing
-        decimated_comp = decimated_comp.connectivity(extraction_mode='largest')
+        surf = surf.connectivity(extraction_mode='largest')
         
-        comp_path = os.path.join(args.output_dir, f"{label_name}_decimated.obj")
-        decimated_comp.save(comp_path)
-        print(f"Saved individual decimated mesh {label_name} to {comp_path}")
+        comp_path = os.path.join(args.output_dir, f"{label_name}.obj")
+        surf.save(comp_path)
+        print(f"Saved individual mesh {label_name} to {comp_path}")
         
+    # QA Inter-Region Overlap Check
+    print("Running QA Inter-Region Overlap Check...")
+    
+    # Identify pairs to check based on track
+    pairs_to_check = []
+    if args.track == 'ct_bone':
+        if 'femur_left' in label_map and 'tibia_left' in label_map:
+            pairs_to_check.append(('femur_left', 'tibia_left'))
+        if 'femur_right' in label_map and 'tibia_right' in label_map:
+            pairs_to_check.append(('femur_right', 'tibia_right'))
+        if 'femur_left' in label_map and 'patella_left' in label_map:
+            pairs_to_check.append(('femur_left', 'patella_left'))
+        if 'femur_right' in label_map and 'patella_right' in label_map:
+            pairs_to_check.append(('femur_right', 'patella_right'))
+    elif args.track == 'mri_cartilage':
+        if 'femur_unknown' in label_map and 'tibia_unknown' in label_map:
+            pairs_to_check.append(('femur_unknown', 'tibia_unknown'))
+            
+    for label1, label2 in pairs_to_check:
+        mesh1_path = os.path.join(args.output_dir, f"{label1}.obj")
+        mesh2_path = os.path.join(args.output_dir, f"{label2}.obj")
+        
+        if os.path.exists(mesh1_path) and os.path.exists(mesh2_path):
+            m1 = pv.read(mesh1_path)
+            m2 = pv.read(mesh2_path)
+            
+            try:
+                col, n_contacts = m1.collision(m2)
+                if n_contacts > 100:
+                    print(f"QA FAILED: Intersection between {label1} and {label2} has {n_contacts} intersecting faces (> 100 threshold).")
+                else:
+                    print(f"QA PASSED: {label1} and {label2} intersect by {n_contacts} faces (acceptable margin)")
+            except Exception as e:
+                print(f"Warning: Could not compute collision for QA check: {e}")
+                
 if __name__ == "__main__":
     main()

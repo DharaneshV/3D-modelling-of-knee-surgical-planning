@@ -200,12 +200,12 @@ def process_mesh_file(mesh_path: str, iterations: int = 30) -> dict:
 
 def smooth_meshes_in_dir(mesh_dir: str, iterations: int = 30) -> list[dict]:
     """
-    Find all *_decimated.obj files in mesh_dir and apply Taubin smoothing.
+    Find all *.obj files in mesh_dir and apply Taubin smoothing.
     Returns list of per-mesh QA results.
     """
-    mesh_files = sorted(Path(mesh_dir).glob("*_decimated.obj"))
+    mesh_files = sorted(Path(mesh_dir).glob("*.obj"))
     if not mesh_files:
-        logger.warning(f"No *_decimated.obj files found in {mesh_dir}")
+        logger.warning(f"No *.obj files found in {mesh_dir}")
         return []
 
     results = []
@@ -223,7 +223,7 @@ def smooth_meshes_in_dir(mesh_dir: str, iterations: int = 30) -> list[dict]:
 def main():
     parser = argparse.ArgumentParser(description="Mask closing + Taubin mesh smoothing")
     parser.add_argument("--mask",   required=True,  help="Input bone mask NIfTI path")
-    parser.add_argument("--meshes", required=True,  help="Directory containing *_decimated.obj files")
+    parser.add_argument("--meshes", required=True,  help="Directory containing *.obj files")
     parser.add_argument("--mask-output", default=None,
                         help="Output path for closed mask (defaults to overwriting input)")
     parser.add_argument("--closing-radius", type=int, default=1,

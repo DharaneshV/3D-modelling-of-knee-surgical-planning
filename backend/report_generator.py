@@ -5,6 +5,7 @@ import datetime
 import numpy as np
 import trimesh
 from scipy.spatial import cKDTree
+from scipy.ndimage import binary_erosion
 from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
@@ -82,7 +83,7 @@ def get_roi_sizing(vertices, long_axis, is_femur=True, side='unknown'):
     
     return round(float(ml_spread), 1), round(float(ap_spread), 1)
 
-def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, modality: str):
+def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, modality: str, mask_path: str = None):
     """Calculate metrics for a specific side (left or right)."""
     metrics = {
         "femur_vol": "N/A - Mesh data missing", "tibia_vol": "N/A - Mesh data missing", "patella_vol": "N/A - Not segmented" if modality == "MRI" else "N/A - Mesh data missing",
@@ -98,7 +99,7 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
     # Need voxel volume to convert count to volume, but we don't have spacing easily here without reading the mask.
     # We will read the mask to get volume in mm^3
     task_id = mesh_dir.name
-    mask_path = mesh_dir / f"{task_id}_mask.nii.gz"
+    mask_path = Path(mask_path) if mask_path else mesh_dir / f"{task_id}_mask.nii.gz"
     if mask_path.exists() and HAS_SITK:
         try:
             img = sitk.ReadImage(str(mask_path))
@@ -122,8 +123,8 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
             print(f"Error reading mask for volumes: {e}")
             
     # 2. Load meshes for JSW, Alignment, and Sizing
-    f_mesh_path = mesh_dir / f"femur_{side}_decimated.obj"
-    t_mesh_path = mesh_dir / f"tibia_{side}_decimated.obj"
+    f_mesh_path = mesh_dir / f"femur_{side}.obj"
+    t_mesh_path = mesh_dir / f"tibia_{side}.obj"
     
     if f_mesh_path.exists() and t_mesh_path.exists():
         try:
@@ -153,38 +154,71 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
             metrics["tibia_ml"], metrics["tibia_ap"] = get_roi_sizing(tibia.vertices, t_axis, is_femur=False, side=side)
             
             # JSW Calculation
-            # Project onto tibia axis to find joint space region
-            t_proj = np.dot(tibia.vertices, t_axis)
-            f_proj = np.dot(femur.vertices, t_axis)
-            joint_z = np.max(t_proj)
-            
-            f_mask = (f_proj >= joint_z - 20) & (f_proj <= joint_z + 40)
-            t_mask = (t_proj >= joint_z - 40) & (t_proj <= joint_z + 20)
-            
-            f_pts = femur.vertices[f_mask]
-            t_pts = tibia.vertices[t_mask]
-            
             metrics["jsw"] = 0.0
             metrics["jsw_overlap"] = False
+            jsw_computed = False
             
-            if len(f_pts) > 0 and len(t_pts) > 0:
+            # Mask-based JSW Calculation
+            if mask_path.exists() and HAS_SITK:
                 try:
-                    import pyvista as pv
-                    pv_femur = pv.wrap(femur)
-                    pv_tibia = pv.wrap(tibia)
-                    collision, n_contacts = pv_femur.collision(pv_tibia)
-                    is_collision = n_contacts > 0
+                    f_mask = arr == f_label
+                    t_mask = arr == t_label
+                    
+                    t_z_indices = np.where(t_mask)[0]
+                    mask_joint_z = np.max(t_z_indices) if len(t_z_indices) > 0 else 0
+                    
+                    z_min = max(0, int(mask_joint_z - 40.0 / spacing[0]))
+                    z_max = min(arr.shape[0], int(mask_joint_z + 40.0 / spacing[0]))
+                    
+                    f_roi = f_mask[z_min:z_max, :, :]
+                    t_roi = t_mask[z_min:z_max, :, :]
+                    
+                    f_bnd = f_roi ^ binary_erosion(f_roi)
+                    t_bnd = t_roi ^ binary_erosion(t_roi)
+                    
+                    f_pts = np.argwhere(f_bnd)
+                    f_pts[:, 0] += z_min
+                    f_pts = f_pts * spacing
+                    
+                    t_pts = np.argwhere(t_bnd)
+                    t_pts[:, 0] += z_min
+                    t_pts = t_pts * spacing
+                    
+                    if len(f_pts) > 0 and len(t_pts) > 0:
+                        tree = cKDTree(t_pts)
+                        dists, idxs = tree.query(f_pts)
+                        min_idx = np.argmin(dists)
+                        center_dist = dists[min_idx]
+                        
+                        p_f = f_pts[min_idx]
+                        p_t = t_pts[idxs[min_idx]]
+                        v = p_f - p_t
+                        
+                        correction = np.sum(np.abs(v / center_dist) * spacing) if center_dist > 0 else 0.0
+                        surface_dist = center_dist - correction
+                        surface_dist = max(0.0, surface_dist)
+                        
+                        metrics["jsw"] = float(f"{surface_dist:.1f}")
+                        jsw_computed = True
                 except Exception as e:
-                    print(f"Collision check failed, falling back to KDTree dist: {e}")
-                    is_collision = False
+                    print(f"Mask JSW calculation failed, falling back to KDTree dist: {e}")
+
+            # Mesh-based JSW Fallback
+            if not jsw_computed:
+                t_proj = np.dot(tibia.vertices, t_axis)
+                f_proj = np.dot(femur.vertices, t_axis)
+                mesh_joint_z = np.max(t_proj)
                 
-                if is_collision:
-                    metrics["jsw_overlap"] = True
-                    metrics["jsw"] = 0.0
-                else:
-                    tree = cKDTree(t_pts)
-                    closest_dists, _ = tree.query(f_pts)
-                    metrics["jsw"] = round(float(np.min(closest_dists)), 2)
+                f_mask_mesh = (f_proj >= mesh_joint_z - 20) & (f_proj <= mesh_joint_z + 40)
+                t_mask_mesh = (t_proj >= mesh_joint_z - 40) & (t_proj <= mesh_joint_z + 20)
+                
+                f_pts_mesh = femur.vertices[f_mask_mesh]
+                t_pts_mesh = tibia.vertices[t_mask_mesh]
+                
+                if len(f_pts_mesh) > 0 and len(t_pts_mesh) > 0:
+                    tree = cKDTree(t_pts_mesh)
+                    closest_dists, _ = tree.query(f_pts_mesh)
+                    metrics["jsw"] = float(f"{np.min(closest_dists):.1f}")
                     
         except Exception as e:
             print(f"Error calculating mesh metrics for {side}: {e}")
@@ -225,7 +259,7 @@ def build_metrics_list(metrics, modality):
         },
         {
             "name": "Joint Space Width (JSW)",
-            "value": format_val(metrics['jsw'], " mm"),
+            "value": format_val(f"{metrics['jsw']:.1f}" if not isinstance(metrics['jsw'], str) else metrics['jsw'], " mm"),
             "caveat": jsw_caveat
         },
         {
@@ -250,7 +284,7 @@ def build_metrics_list(metrics, modality):
         }
     ]
 
-def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: str):
+def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: str, mask_path: str = None):
     scan_date = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     # Read laterality summary
@@ -268,7 +302,7 @@ def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: 
         
     all_metrics = {}
     for side in sides_present:
-        all_metrics[side] = calculate_side_metrics(Path(mesh_dir), side, laterality_summary, modality)
+        all_metrics[side] = calculate_side_metrics(Path(mesh_dir), side, laterality_summary, modality, mask_path)
         
     # Impression logic
     impressions = ["Quantitative knee geometry analysis completed successfully."]
@@ -279,9 +313,11 @@ def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: 
         if isinstance(m["jsw"], str) and "N/A" in m["jsw"]:
             impressions.append(f"[{side_label}] Joint Space Width could not be measured (missing mesh data).")
         elif m["jsw"] < 2.0:
-            impressions.append(f"[{side_label}] Joint Space Width measured at {m['jsw']}mm, indicating joint space narrowing compared to the typical 2.0-6.0mm range.")
+            impressions.append(f"[{side_label}] Joint Space Width measured at {m['jsw']:.1f}mm, indicating joint space narrowing compared to the typical 2.0-6.0mm range.")
+        elif m["jsw"] > 6.0:
+            impressions.append(f"[{side_label}] Joint Space Width measured at {m['jsw']:.1f}mm, which exceeds the typical 2.0-6.0mm range.")
         else:
-            impressions.append(f"[{side_label}] Joint Space Width measured at {m['jsw']}mm, which is within the typical 2.0-6.0mm range.")
+            impressions.append(f"[{side_label}] Joint Space Width measured at {m['jsw']:.1f}mm, which is within the typical 2.0-6.0mm range.")
             
         if isinstance(m["alignment_angle"], str) and "N/A" in m["alignment_angle"]:
             impressions.append(f"[{side_label}] Anatomic axis alignment angle could not be measured.")
@@ -400,13 +436,14 @@ def generate_pdf(data_dict, mesh_dir, task_id):
     
     doc.build(story)
 
-def run(task_id: str, modality: str, file_path: str, mesh_dir: str):
-    data_dict = generate_report_data(task_id, modality, file_path, mesh_dir)
+def run(task_id: str, modality: str, file_path: str, mesh_dir: str, mask_path: str = None):
+    data_dict = generate_report_data(task_id, modality, file_path, mesh_dir, mask_path)
     generate_pdf(data_dict, mesh_dir, task_id)
 
 if __name__ == "__main__":
     if len(sys.argv) < 5:
-        print("Usage: python report_generator.py <task_id> <modality> <file_path> <mesh_dir>")
+        print("Usage: python report_generator.py <task_id> <modality> <file_path> <mesh_dir> [mask_path]")
         sys.exit(1)
         
-    run(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+    mask_p = sys.argv[5] if len(sys.argv) >= 6 else None
+    run(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], mask_p)
