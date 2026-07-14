@@ -58,12 +58,6 @@ async def process_upload(file: UploadFile = File(...)):
         # Copy artifacts
         if old_mesh_dir.exists():
             shutil.copytree(old_mesh_dir, new_mesh_dir)
-            
-            # Rename files containing the old_task_id (e.g. the mask file)
-            for f in new_mesh_dir.iterdir():
-                if f.is_file() and old_task_id in f.name:
-                    new_name = f.name.replace(old_task_id, task_id)
-                    f.rename(new_mesh_dir / new_name)
                     
             # Load the old manifest
             manifest_path = new_mesh_dir / "manifest.json"
@@ -85,9 +79,11 @@ async def process_upload(file: UploadFile = File(...)):
                 import sys
                 try:
                     python_exe = sys.executable
+                    # Use explicit explicit mask path mapping instead of brittle rename
+                    mask_path = new_mesh_dir / f"{old_task_id}_mask.nii.gz"
                     report_cmd = [
                         python_exe, "backend/report_generator.py",
-                        task_id, mod_result["modality"], str(file_path), str(new_mesh_dir)
+                        task_id, mod_result["modality"], str(file_path), str(new_mesh_dir), str(mask_path)
                     ]
                     res = subprocess.run(report_cmd, capture_output=True, text=True)
                     if res.returncode != 0:

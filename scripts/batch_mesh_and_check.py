@@ -27,7 +27,7 @@ def main():
         
         # Check output meshes
         for bone in ['femur', 'tibia', 'patella']:
-            obj_path = os.path.join(out_dir, f"{bone}_decimated.obj")
+            obj_path = os.path.join(out_dir, f"{bone}.obj")
             if not os.path.exists(obj_path):
                 print(f"Warning: {obj_path} not found.")
                 continue

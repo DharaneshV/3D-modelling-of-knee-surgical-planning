@@ -103,11 +103,11 @@ class TestReportGeneratorMetrics(unittest.TestCase):
         # 2. Mock MRI meshes
         f_mesh = trimesh.creation.box(extents=[10, 10, 10])
         f_mesh.apply_translation([10, 10, 15])
-        f_mesh.export(str(mesh_dir / "femur_unknown_decimated.obj"))
+        f_mesh.export(str(mesh_dir / "femur_unknown.obj"))
         
-        t_mesh = trimesh.creation.box(extents=[10, 10, 8])
-        t_mesh.apply_translation([10, 10, 4])
-        t_mesh.export(str(mesh_dir / "tibia_unknown_decimated.obj"))
+        t_mesh = trimesh.creation.box(extents=[80, 80, 80])
+        t_mesh.apply_translation([0, 0, -40]) # Place directly below femur
+        t_mesh.export(str(mesh_dir / "tibia_unknown.obj"))
         
         # Call function
         metrics = calculate_side_metrics(mesh_dir, "unknown", {}, modality="MRI")

@@ -85,6 +85,7 @@ def _run_totalsegmentator(nifti_path: str, out_dir: str, task: str,
         "-ta", task,
         "-nr", "1",
         "-ns", "1",
+        "-d", "gpu",
         "-q",
     ]
     if roi_subset:

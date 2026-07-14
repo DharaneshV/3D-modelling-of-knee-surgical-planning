@@ -1,7 +1,7 @@
 import vtk
 import pyvista as pv
 
-def generate_multilabel_mesh(mask_path: str, label_map: dict) -> pv.PolyData:
+def extract_multilabel_surface(mask_path: str, label_map: dict) -> pv.PolyData:
     """
     Generate a non-intersecting multi-label mesh from a volumetric mask using Surface Nets.
     
@@ -35,6 +35,9 @@ def generate_multilabel_mesh(mask_path: str, label_map: dict) -> pv.PolyData:
     surfacenets.SetNumberOfLabels(len(label_map))
     for i, (label_name, label_value) in enumerate(label_map.items()):
         surfacenets.SetValue(i, label_value)
+    
+    surfacenets.SmoothingOn()
+    surfacenets.GetSmoother().SetNumberOfIterations(15)
     
     surfacenets.Update()
     

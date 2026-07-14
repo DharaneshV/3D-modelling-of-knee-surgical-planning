@@ -3,7 +3,7 @@ import os
 
 def generate_thumbnail(case_id, out_path):
     print(f"Generating thumbnail for {case_id}...")
-    mesh_path = f"outputs/{case_id}/meshes/femur_decimated.obj"
+    mesh_path = f"outputs/{case_id}/meshes/femur.obj"
     if not os.path.exists(mesh_path):
         print(f"Mesh not found: {mesh_path}")
         return

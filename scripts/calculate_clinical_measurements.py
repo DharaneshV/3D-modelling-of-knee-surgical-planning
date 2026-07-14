@@ -59,9 +59,9 @@ def main():
         voxel_vol_mm3 = spacing[0] * spacing[1] * spacing[2]
         
         for side in sides:
-            f_mesh_path = f"{args.base_dir}/{case}/meshes/femur_{side}_decimated.obj"
-            t_mesh_path = f"{args.base_dir}/{case}/meshes/tibia_{side}_decimated.obj"
-            p_mesh_path = f"{args.base_dir}/{case}/meshes/patella_{side}_decimated.obj"
+            f_mesh_path = f"{args.base_dir}/{case}/meshes/femur_{side}.obj"
+            t_mesh_path = f"{args.base_dir}/{case}/meshes/tibia_{side}.obj"
+            p_mesh_path = f"{args.base_dir}/{case}/meshes/patella_{side}.obj"
             
             if not os.path.exists(f_mesh_path) or not os.path.exists(t_mesh_path):
                 print(f"  Meshes missing for {case} ({side}), skipping side.")

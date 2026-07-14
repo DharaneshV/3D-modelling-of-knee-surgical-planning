@@ -99,12 +99,12 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     if modality == "CT":
         track = "ct_bone"
         expected_parts = [
-            {"file": "femur_left_decimated.obj",   "label": "Femur (Left)",   "color": "#e74c3c", "side": "left"},
-            {"file": "femur_right_decimated.obj",  "label": "Femur (Right)",  "color": "#e74c3c", "side": "right"},
-            {"file": "tibia_left_decimated.obj",   "label": "Tibia (Left)",   "color": "#2ecc71", "side": "left"},
-            {"file": "tibia_right_decimated.obj",  "label": "Tibia (Right)",  "color": "#2ecc71", "side": "right"},
-            {"file": "patella_left_decimated.obj", "label": "Patella (Left)", "color": "#3498db", "side": "left"},
-            {"file": "patella_right_decimated.obj","label": "Patella (Right)","color": "#3498db", "side": "right"},
+            {"file": "femur_left.obj",   "label": "Femur (Left)",   "color": "#c4956a", "side": "left"},
+            {"file": "femur_right.obj",  "label": "Femur (Right)",  "color": "#c4956a", "side": "right"},
+            {"file": "tibia_left.obj",   "label": "Tibia (Left)",   "color": "#4a9e7a", "side": "left"},
+            {"file": "tibia_right.obj",  "label": "Tibia (Right)",  "color": "#4a9e7a", "side": "right"},
+            {"file": "patella_left.obj", "label": "Patella (Left)", "color": "#e8922d", "side": "left"},
+            {"file": "patella_right.obj","label": "Patella (Right)","color": "#e8922d", "side": "right"},
         ]
         
         update_status(task_id, "segmenting", modality=modality, reason="Running TotalSegmentator (femur, tibia, patella)...")
@@ -119,11 +119,11 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         seg_cmd = [python_exe, "src/segmentation/run_mri_segmentation.py", "--input", file_path, "--output", mask_output]
         track = "mri_cartilage"
         expected_parts = [
-            {"file": "femur_unknown_decimated.obj", "label": "Femur Bone", "color": "#e74c3c"},
-            {"file": "tibia_unknown_decimated.obj", "label": "Tibia Bone", "color": "#2ecc71"},
-            {"file": "femoral_cartilage_decimated.obj", "label": "Femoral Cartilage", "color": "#ff9f43"},
-            {"file": "medial_tibial_cartilage_decimated.obj", "label": "Medial Tibial Cartilage", "color": "#00d2d3"},
-            {"file": "lateral_tibial_cartilage_decimated.obj", "label": "Lateral Tibial Cartilage", "color": "#54a0ff"}
+            {"file": "femur_unknown.obj", "label": "Femur Bone", "color": "#e74c3c"},
+            {"file": "tibia_unknown.obj", "label": "Tibia Bone", "color": "#2ecc71"},
+            {"file": "femoral_cartilage.obj", "label": "Femoral Cartilage", "color": "#ff9f43"},
+            {"file": "medial_tibial_cartilage.obj", "label": "Medial Tibial Cartilage", "color": "#00d2d3"},
+            {"file": "lateral_tibial_cartilage.obj", "label": "Lateral Tibial Cartilage", "color": "#54a0ff"}
         ]
         
         result = subprocess.run(seg_cmd, capture_output=True, text=True)
@@ -190,7 +190,7 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     try:
         report_cmd = [
             python_exe, "backend/report_generator.py",
-            task_id, modality, str(file_path), str(task_mesh_dir)
+            task_id, modality, str(file_path), str(task_mesh_dir), str(mask_output)
         ]
         result_report = subprocess.run(report_cmd, capture_output=True, text=True)
         if result_report.returncode != 0:
@@ -227,6 +227,7 @@ def check_cache(file_path: str) -> dict:
 def write_cache(file_hash: str, task_id: str):
     # Note: cache/*.json entries never expire or get pruned. Fine for POC, 
     # but needs a cleanup policy for long-running production usage.
+    CACHE_DIR.mkdir(exist_ok=True)
     cache_file = CACHE_DIR / f"{file_hash}.json"
     with open(cache_file, "w") as f:
         json.dump({
