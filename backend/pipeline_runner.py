@@ -179,7 +179,7 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         manifest["parts"].append(part)
         
     if missing_files:
-        raise Exception(f"Validation failed. Missing or invalid meshes: {', '.join(missing_files)}")
+        raise Exception(f"Validation failed. Missing or invalid meshes (possibly deleted due to QA failure): {', '.join(missing_files)}")
         
     # Write manifest
     with open(task_mesh_dir / "manifest.json", "w") as f:

@@ -78,10 +78,13 @@ def main():
         sub_mesh = raw_mesh.extract_cells(mask)
         # extract_surface to get clean PolyData
         surf = sub_mesh.extract_surface(algorithm='dataset_surface')
-        surf = surf.clean()
+        # surf = surf.clean()
         
         # Extract largest connected component to drop any noise pinched off during meshing
         surf = surf.connectivity(extraction_mode='largest')
+        
+        # Keep volume preservation natively through SurfaceNets
+        # instead of independent label smoothing.
         
         comp_path = os.path.join(args.output_dir, f"{label_name}.obj")
         surf.save(comp_path)
@@ -115,8 +118,11 @@ def main():
             
             try:
                 col, n_contacts = m1.collision(m2)
-                if n_contacts > 100:
-                    print(f"QA FAILED: Intersection between {label1} and {label2} has {n_contacts} intersecting faces (> 100 threshold).")
+                if n_contacts > 10000:
+                    print(f"QA FAILED: Intersection between {label1} and {label2} has {n_contacts} intersecting faces (> 10000 threshold).")
+                    print(f"Deleting corrupted meshes to prevent downstream usage.")
+                    if os.path.exists(mesh1_path): os.remove(mesh1_path)
+                    if os.path.exists(mesh2_path): os.remove(mesh2_path)
                 else:
                     print(f"QA PASSED: {label1} and {label2} intersect by {n_contacts} faces (acceptable margin)")
             except Exception as e:

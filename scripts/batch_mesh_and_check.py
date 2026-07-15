@@ -4,8 +4,9 @@ import sys
 import trimesh
 
 def main():
-    cases = ['STS_006', 'STS_035', 'STS_043', 'STS_051']
-    os.environ['PYTHONPATH'] = '.'
+    import glob
+    case_paths = glob.glob('data/ct_knee/case01_STS_*_bone_mask.nii.gz')
+    cases = [os.path.basename(p).replace('case01_', '').replace('_bone_mask.nii.gz', '') for p in case_paths]
     
     for case in cases:
         print(f"\n{'='*50}\nMeshing {case}\n{'='*50}")
@@ -23,10 +24,10 @@ def main():
             print(f"Failed to mesh {case}:\n{result.stderr}")
             continue
             
-        print(f"Meshing complete for {case}. Checking watertightness...")
+        print(f"Meshing complete for {case}. Output:\n{result.stdout}")
         
         # Check output meshes
-        for bone in ['femur', 'tibia', 'patella']:
+        for bone in ['femur_left', 'tibia_left', 'patella_left', 'femur_right', 'tibia_right', 'patella_right']:
             obj_path = os.path.join(out_dir, f"{bone}.obj")
             if not os.path.exists(obj_path):
                 print(f"Warning: {obj_path} not found.")

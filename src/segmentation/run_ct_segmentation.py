@@ -53,21 +53,26 @@ MIN_VOXELS_PATELLA = 200
 # Preprocessing
 # ─────────────────────────────────────────────────────────────────────────────
 
-def resample_to_isotropic(image: sitk.Image, spacing=(1.0, 1.0, 1.0)) -> sitk.Image:
+def resample_to_isotropic(image: sitk.Image, spacing=(1.0, 1.0, 1.0), interpolator=sitk.sitkBSpline) -> sitk.Image:
     orig_spacing = image.GetSpacing()
     orig_size    = image.GetSize()
+    
     new_size = [
-        int(round(sz * ospc / tspc))
-        for sz, ospc, tspc in zip(orig_size, orig_spacing, spacing)
+        int(round(osz * ospc / nspc))
+        for osz, ospc, nspc in zip(orig_size, orig_spacing, spacing)
     ]
+
     resampler = sitk.ResampleImageFilter()
     resampler.SetOutputSpacing(spacing)
     resampler.SetSize(new_size)
     resampler.SetOutputDirection(image.GetDirection())
     resampler.SetOutputOrigin(image.GetOrigin())
     resampler.SetTransform(sitk.Transform())
-    resampler.SetDefaultPixelValue(-1024)
-    resampler.SetInterpolator(sitk.sitkLinear)
+    # Use -1024 (air) for CT images, 0 for masks
+    default_val = -1024.0 if interpolator != sitk.sitkNearestNeighbor else 0.0
+    resampler.SetDefaultPixelValue(default_val)
+    resampler.SetInterpolator(interpolator)
+    
     return resampler.Execute(image)
 
 
@@ -347,8 +352,10 @@ def segment(input_path: str, output_path: str,
     logger.info(f"Laterality summary written: {summary_path}")
 
     # ── 5. Write output mask
+    logger.info("Writing output mask...")
     mask_img = sitk.GetImageFromArray(combined)
     mask_img.CopyInformation(ct)
+    
     sitk.WriteImage(mask_img, output_path)
     logger.info(f"Mask written: {output_path}")
 

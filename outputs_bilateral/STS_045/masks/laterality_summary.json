@@ -5,11 +5,11 @@
         "right"
     ],
     "voxel_counts": {
-        "femur_left": 439770,
-        "femur_right": 442831,
-        "tibia_left": 360346,
-        "tibia_right": 366854,
-        "patella_left": 21921,
+        "femur_left": 440212,
+        "femur_right": 443188,
+        "tibia_left": 359087,
+        "tibia_right": 365365,
+        "patella_left": 21926,
         "patella_right": 21906
     }
 }

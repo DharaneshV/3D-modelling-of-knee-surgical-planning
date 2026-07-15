@@ -134,8 +134,11 @@ def qa_case(case_dir: Path) -> dict:
         return result
 
     obj_files = sorted(mesh_dir.glob("*.obj"))
+    valid_bone_names = set(BONE_LABELS.values())
+    obj_files = [f for f in obj_files if f.stem in valid_bone_names]
+
     if not obj_files:
-        result["flags"].append("MISSING: no *.obj files")
+        result["flags"].append("MISSING: no valid bone *.obj files")
         result["pass"] = False
         return result
 
