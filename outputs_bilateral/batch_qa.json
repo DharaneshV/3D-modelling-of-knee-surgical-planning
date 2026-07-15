@@ -1,38 +1,54 @@
 [
   {
     "case_id": "STS_004",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (3 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 482490,
+        "volume_mm3": 482051,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 486348,
+        "volume_mm3": 485478,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 299538,
+        "volume_mm3": 298420,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 299766,
+        "volume_mm3": 298714,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 18309,
+        "volume_mm3": 18248,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 18376,
+        "volume_mm3": 18300,
         "in_range": true
       }
     },
     "z_extent_mm": 1017,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 289208,
+        "faces": 578698,
+        "components": 3
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 83306,
+        "faces": 166612,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 41636,
@@ -42,11 +58,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 82730,
+        "faces": 165456,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 41348,
         "faces": 82696,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5734,
+        "faces": 11464,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2864,
@@ -56,6 +86,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5788,
+        "faces": 11572,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2895,
         "faces": 5786,
         "components": 1
@@ -63,11 +100,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 55918,
+        "faces": 111832,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 28010,
         "faces": 56016,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 56016,
+        "faces": 112028,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 28020,
@@ -78,38 +129,54 @@
   },
   {
     "case_id": "STS_006",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 477485,
+        "volume_mm3": 478468,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 472062,
+        "volume_mm3": 472606,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 404407,
+        "volume_mm3": 402701,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 400544,
+        "volume_mm3": 398778,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 25187,
+        "volume_mm3": 25137,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 26629,
+        "volume_mm3": 26441,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 296717,
+        "faces": 593560,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 73536,
+        "faces": 147076,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 36638,
@@ -119,11 +186,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 72522,
+        "faces": 145040,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 36181,
         "faces": 72358,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6890,
+        "faces": 13776,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3446,
@@ -133,6 +214,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 7328,
+        "faces": 14652,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3673,
         "faces": 7342,
         "components": 1
@@ -140,11 +228,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 68410,
+        "faces": 136820,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 34286,
         "faces": 68570,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 68150,
+        "faces": 136324,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 34112,
@@ -155,38 +257,54 @@
   },
   {
     "case_id": "STS_009",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 379596,
+        "volume_mm3": 379704,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 377580,
+        "volume_mm3": 377144,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 349910,
+        "volume_mm3": 348776,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 351343,
+        "volume_mm3": 349950,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 18628,
+        "volume_mm3": 18547,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 18817,
+        "volume_mm3": 18664,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 262445,
+        "faces": 524936,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 64203,
+        "faces": 128412,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32142,
@@ -196,11 +314,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 61524,
+        "faces": 123056,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 30705,
         "faces": 61408,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5646,
+        "faces": 11288,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2834,
@@ -210,6 +342,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5796,
+        "faces": 11588,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2909,
         "faces": 5814,
         "components": 1
@@ -217,11 +356,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 62138,
+        "faces": 124272,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 31071,
         "faces": 62138,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 63159,
+        "faces": 126324,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31582,
@@ -232,38 +385,54 @@
   },
   {
     "case_id": "STS_010",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (3 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 369620,
+        "volume_mm3": 368472,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 365611,
+        "volume_mm3": 364706,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 312086,
+        "volume_mm3": 310927,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 306696,
+        "volume_mm3": 305338,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 16386,
+        "volume_mm3": 16302,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 16506,
+        "volume_mm3": 16389,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 252133,
+        "faces": 504308,
+        "components": 3
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 64293,
+        "faces": 128584,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31964,
@@ -273,11 +442,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 63916,
+        "faces": 127828,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 31979,
         "faces": 63962,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5288,
+        "faces": 10572,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2637,
@@ -287,6 +470,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5214,
+        "faces": 10424,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2614,
         "faces": 5224,
         "components": 1
@@ -294,11 +484,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 57312,
+        "faces": 114628,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 28676,
         "faces": 57352,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 56141,
+        "faces": 112280,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 28152,
@@ -309,38 +513,54 @@
   },
   {
     "case_id": "STS_013",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 656666,
+        "volume_mm3": 657520,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 636818,
+        "volume_mm3": 637180,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 353976,
+        "volume_mm3": 354163,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 378010,
+        "volume_mm3": 377402,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 22419,
+        "volume_mm3": 22576,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 22384,
+        "volume_mm3": 22455,
         "in_range": true
       }
     },
     "z_extent_mm": 1017,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 345301,
+        "faces": 690712,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 103208,
+        "faces": 206416,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 51476,
@@ -350,11 +570,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 101157,
+        "faces": 202316,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 50557,
         "faces": 101112,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6608,
+        "faces": 13212,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3269,
@@ -364,6 +598,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 6330,
+        "faces": 12656,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3162,
         "faces": 6320,
         "components": 1
@@ -371,11 +612,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 62452,
+        "faces": 124900,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 31165,
         "faces": 62326,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 65663,
+        "faces": 131332,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32779,
@@ -386,38 +641,54 @@
   },
   {
     "case_id": "STS_014",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 536679,
+        "volume_mm3": 536409,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 541416,
+        "volume_mm3": 541286,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 421174,
+        "volume_mm3": 419114,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 414447,
+        "volume_mm3": 412540,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 24652,
+        "volume_mm3": 24667,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 25822,
+        "volume_mm3": 25756,
         "in_range": true
       }
     },
     "z_extent_mm": 1017,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 327323,
+        "faces": 654700,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 84280,
+        "faces": 168556,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 41890,
@@ -427,11 +698,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 86374,
+        "faces": 172752,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 43169,
         "faces": 86334,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6810,
+        "faces": 13616,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3398,
@@ -441,6 +726,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 7016,
+        "faces": 14028,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3509,
         "faces": 7014,
         "components": 1
@@ -448,11 +740,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 71786,
+        "faces": 143568,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 35956,
         "faces": 71916,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 71110,
+        "faces": 142228,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 35590,
@@ -463,59 +769,68 @@
   },
   {
     "case_id": "STS_016",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (3 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 390533,
+        "volume_mm3": 388703,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 386078,
+        "volume_mm3": 385227,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 338395,
+        "volume_mm3": 337436,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 348162,
+        "volume_mm3": 346989,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 16077,
+        "volume_mm3": 16184,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 15074,
+        "volume_mm3": 15080,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
-      "femur_left": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 269852,
+        "faces": 540402,
+        "components": 3
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 33043,
         "faces": 66084,
         "components": 1
       },
-      "femur_right": {
+      "femur_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32576,
         "faces": 65160,
         "components": 1
       },
-      "patella_left": {
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2604,
         "faces": 5204,
         "components": 1
       },
-      "patella_right": {
+      "patella_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2519,
@@ -525,11 +840,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 65420,
+        "faces": 130844,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 32687,
         "faces": 65378,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 66424,
+        "faces": 132860,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 33191,
@@ -540,38 +869,54 @@
   },
   {
     "case_id": "STS_017",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (5 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 460230,
+        "volume_mm3": 460182,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 453082,
+        "volume_mm3": 452763,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 407626,
+        "volume_mm3": 405854,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 399376,
+        "volume_mm3": 397775,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 27119,
+        "volume_mm3": 27041,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 27811,
+        "volume_mm3": 27616,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 292501,
+        "faces": 585082,
+        "components": 5
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 70711,
+        "faces": 141428,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 35312,
@@ -581,11 +926,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 68991,
+        "faces": 137992,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 34438,
         "faces": 68878,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 7378,
+        "faces": 14752,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3684,
@@ -595,6 +954,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 7378,
+        "faces": 14752,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3694,
         "faces": 7384,
         "components": 1
@@ -602,11 +968,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 69553,
+        "faces": 139104,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 34800,
         "faces": 69598,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 68548,
+        "faces": 137104,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 34297,
@@ -617,38 +997,54 @@
   },
   {
     "case_id": "STS_022",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 424349,
+        "volume_mm3": 424717,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 418220,
+        "volume_mm3": 417672,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 368968,
+        "volume_mm3": 367236,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 381526,
+        "volume_mm3": 379410,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 21559,
+        "volume_mm3": 21470,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 21587,
+        "volume_mm3": 21487,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 275144,
+        "faces": 550302,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 67136,
+        "faces": 134276,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32812,
@@ -658,11 +1054,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 65738,
+        "faces": 131472,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 32837,
         "faces": 65674,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6360,
+        "faces": 12716,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3193,
@@ -672,6 +1082,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 6386,
+        "faces": 12768,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3193,
         "faces": 6382,
         "components": 1
@@ -679,11 +1096,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 64054,
+        "faces": 128116,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 32082,
         "faces": 64170,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 65482,
+        "faces": 130960,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32780,
@@ -694,38 +1125,54 @@
   },
   {
     "case_id": "STS_023",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (3 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 408222,
+        "volume_mm3": 407894,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 418054,
+        "volume_mm3": 417236,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 333042,
+        "volume_mm3": 331639,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 327333,
+        "volume_mm3": 325783,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 20401,
+        "volume_mm3": 20421,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 20193,
+        "volume_mm3": 20175,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 266265,
+        "faces": 532794,
+        "components": 3
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 68095,
+        "faces": 136192,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 34028,
@@ -735,11 +1182,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 68854,
+        "faces": 137708,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 34443,
         "faces": 68894,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6054,
+        "faces": 12104,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3025,
@@ -749,6 +1210,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5872,
+        "faces": 11740,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2935,
         "faces": 5866,
         "components": 1
@@ -756,11 +1224,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 59120,
+        "faces": 118244,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 29557,
         "faces": 59114,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 58587,
+        "faces": 117180,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 29295,
@@ -771,38 +1253,54 @@
   },
   {
     "case_id": "STS_024",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 337896,
+        "volume_mm3": 338490,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 325138,
+        "volume_mm3": 326579,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 320049,
+        "volume_mm3": 318691,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 354978,
+        "volume_mm3": 355014,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 16792,
+        "volume_mm3": 16837,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 16181,
+        "volume_mm3": 16336,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 255009,
+        "faces": 510306,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 58931,
+        "faces": 117860,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 29174,
@@ -812,11 +1310,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 59374,
+        "faces": 118744,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 29619,
         "faces": 59238,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5184,
+        "faces": 10364,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2594,
@@ -826,6 +1338,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 4996,
+        "faces": 9988,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2499,
         "faces": 4994,
         "components": 1
@@ -833,11 +1352,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 61426,
+        "faces": 122848,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 30765,
         "faces": 61534,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 65357,
+        "faces": 130716,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32734,
@@ -848,38 +1381,54 @@
   },
   {
     "case_id": "STS_025",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (5 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 364896,
+        "volume_mm3": 366129,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 372671,
+        "volume_mm3": 373596,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 352678,
+        "volume_mm3": 351875,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 360121,
+        "volume_mm3": 359364,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 20674,
+        "volume_mm3": 20724,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 20327,
+        "volume_mm3": 20355,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 268434,
+        "faces": 536892,
+        "components": 5
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 63232,
+        "faces": 126468,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31359,
@@ -889,11 +1438,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 63764,
+        "faces": 127528,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 31831,
         "faces": 63660,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6184,
+        "faces": 12364,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3087,
@@ -903,6 +1466,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 6070,
+        "faces": 12136,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3024,
         "faces": 6044,
         "components": 1
@@ -910,11 +1480,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 64316,
+        "faces": 128632,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 32120,
         "faces": 64240,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 64885,
+        "faces": 129772,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32429,
@@ -925,38 +1509,47 @@
   },
   {
     "case_id": "STS_027",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (3 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 393488,
+        "volume_mm3": 393725,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 398517,
+        "volume_mm3": 399009,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 336522,
+        "volume_mm3": 334911,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 322978,
+        "volume_mm3": 321268,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 24241,
+        "volume_mm3": 24686,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 25449,
+        "volume_mm3": 25534,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
-      "femur_left": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 276406,
+        "faces": 553656,
+        "components": 3
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 33850,
@@ -966,11 +1559,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 69016,
+        "faces": 138044,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 34444,
         "faces": 68902,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 7070,
+        "faces": 14136,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3517,
@@ -980,11 +1587,18 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 7409,
+        "faces": 14820,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3678,
         "faces": 7358,
         "components": 1
       },
-      "tibia_left": {
+      "tibia_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31968,
@@ -992,6 +1606,13 @@
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 62218,
+        "faces": 124440,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31099,
@@ -1002,38 +1623,54 @@
   },
   {
     "case_id": "STS_028",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (2 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 212161,
+        "volume_mm3": 211980,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 202650,
+        "volume_mm3": 202549,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 261963,
+        "volume_mm3": 260578,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 262985,
+        "volume_mm3": 261193,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 15083,
+        "volume_mm3": 15189,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 15749,
+        "volume_mm3": 15789,
         "in_range": true
       }
     },
     "z_extent_mm": 729,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 197330,
+        "faces": 394908,
+        "components": 2
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 38988,
+        "faces": 77972,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 19486,
@@ -1043,11 +1680,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 37334,
+        "faces": 74668,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 18684,
         "faces": 37364,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 4962,
+        "faces": 9920,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2474,
@@ -1057,6 +1708,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5098,
+        "faces": 10192,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2543,
         "faces": 5082,
         "components": 1
@@ -1064,11 +1722,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 55295,
+        "faces": 110588,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 27692,
         "faces": 55382,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 55842,
+        "faces": 111680,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 27986,
@@ -1079,38 +1751,54 @@
   },
   {
     "case_id": "STS_032",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (6 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 448675,
+        "volume_mm3": 452034,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 471834,
+        "volume_mm3": 471068,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 413171,
+        "volume_mm3": 415149,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 431098,
+        "volume_mm3": 436561,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 21804,
+        "volume_mm3": 22042,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 25223,
+        "volume_mm3": 25334,
         "in_range": true
       }
     },
     "z_extent_mm": 858,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 308434,
+        "faces": 617156,
+        "components": 6
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 75882,
+        "faces": 151884,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 37975,
@@ -1120,11 +1808,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 74980,
+        "faces": 150112,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 37316,
         "faces": 74772,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 7192,
+        "faces": 14380,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3622,
@@ -1134,6 +1836,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 7742,
+        "faces": 15480,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3841,
         "faces": 7678,
         "components": 1
@@ -1141,11 +1850,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 68490,
+        "faces": 136984,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 34194,
         "faces": 68398,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 74148,
+        "faces": 148316,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 36419,
@@ -1156,38 +1879,54 @@
   },
   {
     "case_id": "STS_034",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (5 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 447609,
+        "volume_mm3": 447012,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 443829,
+        "volume_mm3": 443497,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 403814,
+        "volume_mm3": 402972,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 415580,
+        "volume_mm3": 414564,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 29598,
+        "volume_mm3": 29521,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 28785,
+        "volume_mm3": 28666,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 295242,
+        "faces": 590548,
+        "components": 5
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 70386,
+        "faces": 140768,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 35355,
@@ -1197,11 +1936,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 70243,
+        "faces": 140484,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 35064,
         "faces": 70132,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 7694,
+        "faces": 15384,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3853,
@@ -1211,6 +1964,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 7580,
+        "faces": 15156,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3797,
         "faces": 7590,
         "components": 1
@@ -1218,11 +1978,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 69089,
+        "faces": 138176,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 34522,
         "faces": 69040,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 70334,
+        "faces": 140664,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 35141,
@@ -1233,38 +2007,54 @@
   },
   {
     "case_id": "STS_035",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 364216,
+        "volume_mm3": 364003,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 365723,
+        "volume_mm3": 365267,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 350645,
+        "volume_mm3": 349477,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 361540,
+        "volume_mm3": 360388,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 17596,
+        "volume_mm3": 17503,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 17973,
+        "volume_mm3": 17821,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 254788,
+        "faces": 509620,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 59345,
+        "faces": 118704,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 29627,
@@ -1274,11 +2064,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 59103,
+        "faces": 118204,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 29538,
         "faces": 59074,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5370,
+        "faces": 10736,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2683,
@@ -1288,6 +2092,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5346,
+        "faces": 10688,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2686,
         "faces": 5368,
         "components": 1
@@ -1295,11 +2106,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 61794,
+        "faces": 123588,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 30896,
         "faces": 61798,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 63847,
+        "faces": 127704,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31885,
@@ -1310,38 +2135,54 @@
   },
   {
     "case_id": "STS_038",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 343368,
+        "volume_mm3": 343485,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 341667,
+        "volume_mm3": 341120,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 298789,
+        "volume_mm3": 297357,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 296477,
+        "volume_mm3": 294976,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 19262,
+        "volume_mm3": 19240,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 19997,
+        "volume_mm3": 19897,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 239464,
+        "faces": 479192,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 57450,
+        "faces": 114900,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 28536,
@@ -1351,11 +2192,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 58411,
+        "faces": 116824,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 29165,
         "faces": 58330,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5584,
+        "faces": 11164,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2795,
@@ -1365,6 +2220,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5870,
+        "faces": 11736,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2940,
         "faces": 5876,
         "components": 1
@@ -1372,11 +2234,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 56727,
+        "faces": 113456,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 28387,
         "faces": 56778,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 55717,
+        "faces": 111432,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 27872,
@@ -1387,38 +2263,54 @@
   },
   {
     "case_id": "STS_039",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (5 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 393224,
+        "volume_mm3": 393405,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 389228,
+        "volume_mm3": 389603,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 428173,
+        "volume_mm3": 426892,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 420279,
+        "volume_mm3": 418802,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 22200,
+        "volume_mm3": 22190,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 22737,
+        "volume_mm3": 22577,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 280382,
+        "faces": 560820,
+        "components": 5
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 61606,
+        "faces": 123212,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 30365,
@@ -1428,11 +2320,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 60852,
+        "faces": 121704,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 30370,
         "faces": 60736,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6324,
+        "faces": 12644,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3155,
@@ -1442,6 +2348,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 6534,
+        "faces": 13068,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3272,
         "faces": 6540,
         "components": 1
@@ -1449,11 +2362,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 73037,
+        "faces": 146076,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 36572,
         "faces": 73146,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 72085,
+        "faces": 144172,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 36055,
@@ -1464,38 +2391,54 @@
   },
   {
     "case_id": "STS_041",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (2 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 463415,
+        "volume_mm3": 462710,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 462761,
+        "volume_mm3": 461692,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 279942,
+        "volume_mm3": 279357,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 270914,
+        "volume_mm3": 270318,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 16701,
+        "volume_mm3": 16733,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 16722,
+        "volume_mm3": 16772,
         "in_range": true
       }
     },
     "z_extent_mm": 1017,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 282801,
+        "faces": 565996,
+        "components": 2
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 82409,
+        "faces": 164836,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 41472,
@@ -1505,11 +2448,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 81336,
+        "faces": 162680,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 40667,
         "faces": 81338,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5206,
+        "faces": 10408,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2597,
@@ -1519,6 +2476,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5096,
+        "faces": 10188,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2533,
         "faces": 5062,
         "components": 1
@@ -1526,11 +2490,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 56632,
+        "faces": 113332,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 28197,
         "faces": 56458,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 52656,
+        "faces": 105308,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 26298,
@@ -1541,38 +2519,54 @@
   },
   {
     "case_id": "STS_042",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 253748,
+        "volume_mm3": 254133,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 254281,
+        "volume_mm3": 253997,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 273005,
+        "volume_mm3": 271626,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 270909,
+        "volume_mm3": 269426,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 13404,
+        "volume_mm3": 13251,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 13272,
+        "volume_mm3": 13174,
         "in_range": true
       }
     },
     "z_extent_mm": 729,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 203507,
+        "faces": 407364,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 43369,
+        "faces": 86748,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 21461,
@@ -1582,11 +2576,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 44735,
+        "faces": 89468,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 22373,
         "faces": 44744,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 4526,
+        "faces": 9048,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2274,
@@ -1596,6 +2604,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 4506,
+        "faces": 9008,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2266,
         "faces": 4528,
         "components": 1
@@ -1603,11 +2618,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 53629,
+        "faces": 107264,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 26867,
         "faces": 53746,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 53076,
+        "faces": 106160,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 26542,
@@ -1618,38 +2647,54 @@
   },
   {
     "case_id": "STS_043",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (5 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 570853,
+        "volume_mm3": 570795,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 565883,
+        "volume_mm3": 564969,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 505828,
+        "volume_mm3": 504361,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 501791,
+        "volume_mm3": 500844,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 24227,
+        "volume_mm3": 24095,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 25258,
+        "volume_mm3": 25145,
         "in_range": true
       }
     },
     "z_extent_mm": 1017,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 343874,
+        "faces": 687788,
+        "components": 5
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 85794,
+        "faces": 171596,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 42896,
@@ -1659,11 +2704,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 85006,
+        "faces": 170008,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 42503,
         "faces": 85006,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6686,
+        "faces": 13368,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3355,
@@ -1673,6 +2732,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 6796,
+        "faces": 13588,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3431,
         "faces": 6858,
         "components": 1
@@ -1680,11 +2746,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 80358,
+        "faces": 160716,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 40187,
         "faces": 80370,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 79274,
+        "faces": 158548,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 39628,
@@ -1695,27 +2775,29 @@
   },
   {
     "case_id": "STS_045",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 439770,
+        "volume_mm3": 440212,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 442831,
+        "volume_mm3": 443188,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 360346,
+        "volume_mm3": 359087,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 366854,
+        "volume_mm3": 365365,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 21921,
+        "volume_mm3": 21926,
         "in_range": true
       },
       "patella_right": {
@@ -1726,7 +2808,21 @@
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 276644,
+        "faces": 553334,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 69267,
+        "faces": 138536,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 34353,
@@ -1736,11 +2832,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 69127,
+        "faces": 138256,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 34509,
         "faces": 69014,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 6378,
+        "faces": 12752,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3184,
@@ -1750,6 +2860,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 6342,
+        "faces": 12680,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3149,
         "faces": 6294,
         "components": 1
@@ -1757,11 +2874,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 62273,
+        "faces": 124548,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 31127,
         "faces": 62250,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 63283,
+        "faces": 126572,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31698,
@@ -1772,38 +2903,54 @@
   },
   {
     "case_id": "STS_046",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (2 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 490893,
+        "volume_mm3": 490363,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 473453,
+        "volume_mm3": 473179,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 337758,
+        "volume_mm3": 336438,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 327174,
+        "volume_mm3": 325677,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 18285,
+        "volume_mm3": 18245,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 17542,
+        "volume_mm3": 17476,
         "in_range": true
       }
     },
     "z_extent_mm": 1017,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 300901,
+        "faces": 602402,
+        "components": 2
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 84752,
+        "faces": 169500,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 42387,
@@ -1813,11 +2960,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 82775,
+        "faces": 165552,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 41365,
         "faces": 82730,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5676,
+        "faces": 11348,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2838,
@@ -1827,6 +2988,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5508,
+        "faces": 11012,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2743,
         "faces": 5482,
         "components": 1
@@ -1834,11 +3002,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 61511,
+        "faces": 123020,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 30741,
         "faces": 61478,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 61361,
+        "faces": 122724,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 30681,
@@ -1849,38 +3031,54 @@
   },
   {
     "case_id": "STS_047",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 412858,
+        "volume_mm3": 413502,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 417305,
+        "volume_mm3": 417985,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 371347,
+        "volume_mm3": 370394,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 362946,
+        "volume_mm3": 361757,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 18157,
+        "volume_mm3": 18218,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 18341,
+        "volume_mm3": 18552,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 270789,
+        "faces": 541616,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 67696,
+        "faces": 135392,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 33609,
@@ -1890,11 +3088,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 67061,
+        "faces": 134120,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 33516,
         "faces": 67032,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5688,
+        "faces": 11372,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2826,
@@ -1904,6 +3116,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5656,
+        "faces": 11312,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2826,
         "faces": 5652,
         "components": 1
@@ -1911,11 +3130,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 62453,
+        "faces": 124904,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 31237,
         "faces": 62476,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 62265,
+        "faces": 124532,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31114,
@@ -1926,45 +3159,61 @@
   },
   {
     "case_id": "STS_048",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (3 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 322576,
+        "volume_mm3": 322031,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 310660,
+        "volume_mm3": 309172,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 239480,
+        "volume_mm3": 238551,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 249398,
+        "volume_mm3": 247993,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 16005,
+        "volume_mm3": 15992,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 16025,
+        "volume_mm3": 16034,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 230092,
+        "faces": 460728,
+        "components": 3
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 63102,
+        "faces": 126204,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 31486,
         "faces": 62968,
         "components": 1
       },
-      "femur_right": {
+      "femur_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 29573,
@@ -1974,11 +3223,25 @@
       "patella_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5060,
+        "faces": 10116,
+        "components": 1
+      },
+      "patella_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2523,
         "faces": 5042,
         "components": 1
       },
       "patella_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5086,
+        "faces": 10168,
+        "components": 1
+      },
+      "patella_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2533,
@@ -1988,11 +3251,18 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 49032,
+        "faces": 98060,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 24494,
         "faces": 48988,
         "components": 1
       },
-      "tibia_right": {
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 24795,
@@ -2003,38 +3273,54 @@
   },
   {
     "case_id": "STS_049",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (5 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 397996,
+        "volume_mm3": 399009,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 398756,
+        "volume_mm3": 398797,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 364415,
+        "volume_mm3": 363830,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 364906,
+        "volume_mm3": 363756,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 27009,
+        "volume_mm3": 27168,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 26227,
+        "volume_mm3": 26496,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 277329,
+        "faces": 554694,
+        "components": 5
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 65946,
+        "faces": 131888,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32801,
@@ -2044,11 +3330,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 66819,
+        "faces": 133636,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 33380,
         "faces": 66758,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 7314,
+        "faces": 14624,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 3631,
@@ -2058,6 +3358,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 7302,
+        "faces": 14600,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 3615,
         "faces": 7226,
         "components": 1
@@ -2065,11 +3372,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 64828,
+        "faces": 129656,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 32404,
         "faces": 64808,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 65154,
+        "faces": 130312,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 32564,
@@ -2080,38 +3401,54 @@
   },
   {
     "case_id": "STS_050",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (3 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 394878,
+        "volume_mm3": 395127,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 398696,
+        "volume_mm3": 397975,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 274196,
+        "volume_mm3": 273083,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 268934,
+        "volume_mm3": 268278,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 17658,
+        "volume_mm3": 17607,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 16968,
+        "volume_mm3": 16962,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 260099,
+        "faces": 520454,
+        "components": 3
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 71123,
+        "faces": 142244,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 35764,
@@ -2121,11 +3458,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 72861,
+        "faces": 145724,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 36433,
         "faces": 72862,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 5356,
+        "faces": 10708,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 2685,
@@ -2135,6 +3486,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 5304,
+        "faces": 10604,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 2649,
         "faces": 5294,
         "components": 1
@@ -2142,11 +3500,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 53161,
+        "faces": 106324,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 26612,
         "faces": 53226,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 52527,
+        "faces": 105056,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 26243,
@@ -2157,38 +3529,54 @@
   },
   {
     "case_id": "STS_051",
-    "pass": true,
-    "flags": [],
+    "pass": false,
+    "flags": [
+      "MULTI_COMPONENT: bone_mask_ct_bone_raw.obj (4 components)"
+    ],
     "bones": {
       "femur_left": {
-        "volume_mm3": 466946,
+        "volume_mm3": 468009,
         "in_range": true
       },
       "femur_right": {
-        "volume_mm3": 472736,
+        "volume_mm3": 472932,
         "in_range": true
       },
       "tibia_left": {
-        "volume_mm3": 477022,
+        "volume_mm3": 475774,
         "in_range": true
       },
       "tibia_right": {
-        "volume_mm3": 488170,
+        "volume_mm3": 485969,
         "in_range": true
       },
       "patella_left": {
-        "volume_mm3": 31728,
+        "volume_mm3": 31832,
         "in_range": true
       },
       "patella_right": {
-        "volume_mm3": 33957,
+        "volume_mm3": 33904,
         "in_range": true
       }
     },
     "z_extent_mm": 873,
     "laterality": "bilateral",
     "meshes": {
+      "bone_mask_ct_bone_raw": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 312455,
+        "faces": 625006,
+        "components": 4
+      },
       "femur_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 70867,
+        "faces": 141736,
+        "components": 1
+      },
+      "femur_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 35352,
@@ -2198,11 +3586,25 @@
       "femur_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 70207,
+        "faces": 140412,
+        "components": 1
+      },
+      "femur_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 35041,
         "faces": 70080,
         "components": 1
       },
       "patella_left": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 8112,
+        "faces": 16220,
+        "components": 1
+      },
+      "patella_left_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 4040,
@@ -2212,6 +3614,13 @@
       "patella_right": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 8510,
+        "faces": 17016,
+        "components": 1
+      },
+      "patella_right_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 4264,
         "faces": 8524,
         "components": 1
@@ -2219,11 +3628,25 @@
       "tibia_left": {
         "watertight": true,
         "boundary_edges": 0,
+        "vertices": 76944,
+        "faces": 153888,
+        "components": 1
+      },
+      "tibia_left_decimated": {
+        "watertight": true,
+        "boundary_edges": 0,
         "vertices": 38493,
         "faces": 76996,
         "components": 1
       },
       "tibia_right": {
+        "watertight": true,
+        "boundary_edges": 0,
+        "vertices": 77913,
+        "faces": 155828,
+        "components": 1
+      },
+      "tibia_right_decimated": {
         "watertight": true,
         "boundary_edges": 0,
         "vertices": 38980,

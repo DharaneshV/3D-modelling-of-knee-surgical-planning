@@ -29,32 +29,38 @@ def run_batch():
         mesh_dir.mkdir(parents=True, exist_ok=True)
         
         with open(log_path, "w") as log_f:
-            log_f.write(f"--- SEGMENTATION ---\n")
-            log_f.flush()
-            
+            def run_and_stream(cmd, title):
+                print(f"--- {title} ---")
+                log_f.write(f"--- {title} ---\n")
+                log_f.flush()
+                
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                for line in process.stdout:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                    log_f.write(line)
+                    log_f.flush()
+                process.wait()
+                return process.returncode
+
             cmd_seg = [
                 sys.executable, "src/segmentation/run_ct_segmentation.py",
                 "--input", ct_path,
                 "--output", str(mask_path)
             ]
-            res_seg = subprocess.run(cmd_seg, stdout=log_f, stderr=subprocess.STDOUT)
             
-            if res_seg.returncode != 0:
+            if run_and_stream(cmd_seg, "SEGMENTATION") != 0:
                 print(f"  -> Segmentation failed for {case_id}. See {log_path}")
                 continue
                 
-            log_f.write(f"\n--- MESHING ---\n")
-            log_f.flush()
-            
             cmd_mesh = [
                 sys.executable, "scripts/run_meshing.py",
                 "--input", str(mask_path),
                 "--output_dir", str(mesh_dir),
                 "--track", "ct_bone"
             ]
-            res_mesh = subprocess.run(cmd_mesh, stdout=log_f, stderr=subprocess.STDOUT)
             
-            if res_mesh.returncode != 0:
+            if run_and_stream(cmd_mesh, "MESHING") != 0:
                 print(f"  -> Meshing failed for {case_id}. See {log_path}")
             else:
                 print(f"  -> Success.")

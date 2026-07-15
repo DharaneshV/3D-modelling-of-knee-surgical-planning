@@ -73,10 +73,13 @@ class KneeViewport {
         
         const maxDim = Math.max(size.x, size.y, size.z);
         const fov = this.camera.fov * (Math.PI / 180);
-        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-        cameraZ *= 1.1; // Reduced from 1.5 so meshes fill more of the viewport
+        let cameraDist = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+        cameraDist *= 1.1; // Reduced from 1.5 so meshes fill more of the viewport
         
-        this.camera.position.set(center.x, center.y, center.z + cameraZ);
+        // CT coordinate system: Y is Anterior (front), Z is Superior (up)
+        // Set camera on the Anterior side looking at the center, with Superior as UP
+        this.camera.position.set(center.x, center.y - cameraDist, center.z);
+        this.camera.up.set(0, 0, 1);
         this.controls.target.copy(center);
         this.controls.update();
     }
