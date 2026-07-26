@@ -1,144 +1,174 @@
 import os
 import sys
-import pickle
+from pathlib import Path
+# Ensure root is in PYTHONPATH
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
+
 import logging
 import argparse
-from pathlib import Path
 import numpy as np
 import pyvista as pv
+import vtk
+import json
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 SCRATCH_DIR = Path('d:/knee surgery model/scratch')
-MODEL_DIR = Path('d:/knee surgery model/models/ssm')
+VISUAL_MODEL_DIR = Path('d:/knee surgery model/models/visual')
 
-# QA Gate Threshold
-# WARNING: This checks for statistical outliers in the N=3 feature space. 
-# It catches egregious inputs only and DOES NOT guarantee geometric accuracy (<2mm).
-# With N=3, the true held-out error is ~7mm, meaning the fallback to CT is the DEFAULT 
-# clinical pathway for tight-tolerance sizing until more paired data is collected.
-MAHALANOBIS_THRESHOLD = 3.0
-
-class MahalanobisGateFailure(Exception):
-    """Exception raised when MRI features are out of distribution and CT fallback is required."""
-    pass
-
-def load_models(bone_type: str):
-    """Load the trained SSM models and template mesh."""
-    logger.info(f"Loading SSM models for {bone_type}...")
-    with open(MODEL_DIR / f"pca_model_{bone_type}.pkl", "rb") as f:
-        pca = pickle.load(f)
-    with open(MODEL_DIR / f"shape_regressor_{bone_type}.pkl", "rb") as f:
-        regressor = pickle.load(f)
-    with open(MODEL_DIR / "cart_feature_scaler.pkl", "rb") as f:
-        scaler = pickle.load(f)
+def align_and_scale_bone(case_dir: Path, bone_type: str) -> Path:
+    """
+    Fits a generic reference bone to the patient's native cartilage for illustrative visualization.
+    Uses a similarity transform (uniform scale derived from bounding box + rigid ICP).
+    """
+    logger.info(f"\n--- Visual Fitting {bone_type} for {case_dir.name} ---")
+    
+    mesh_dir = case_dir / "meshes"
+    
+    # Check laterality
+    summary_path = case_dir / "laterality_summary.json"
+    side = "right"
+    if summary_path.exists():
+        with open(summary_path) as f:
+            side = json.load(f).get("laterality", "right")
+    is_left = side == "left"
+    
+    # 1. Load Generic Bone and Generic Cartilage Proxy
+    generic_bone_path = VISUAL_MODEL_DIR / f"generic_{bone_type}.obj"
+    generic_proxy_path = VISUAL_MODEL_DIR / f"generic_{bone_type}_proxy.obj"
+    
+    if not generic_bone_path.exists() or not generic_proxy_path.exists():
+        raise FileNotFoundError("Visual reference models missing. Run generate_visual_reference.py first.")
         
-    template_mesh = pv.read(str(MODEL_DIR / f"template_{bone_type}.obj"))
+    generic_bone = pv.read(str(generic_bone_path))
+    generic_proxy = pv.read(str(generic_proxy_path))
     
-    return pca, regressor, scaler, template_mesh
-
-def synthesize_bone(case_dir: Path, bone_type: str, custom_features: np.ndarray = None) -> Path:
-    """Synthesize a bone mesh from MRI features. Returns the path to the synthesized mesh."""
-    logger.info(f"\n--- Synthesizing {bone_type} for {case_dir.name} ---")
+    # 2. Load Patient's Native Cartilage
+    # Always load femoral cartilage to compute a stable global scale factor
+    femoral_cart_path = mesh_dir / "femoral_cartilage.obj"
+    if not femoral_cart_path.exists():
+        logger.warning(f"Native femoral cartilage not found. Cannot determine scale. Skipping.")
+        return None
+    femoral_cart = pv.read(str(femoral_cart_path))
     
-    if custom_features is not None:
-        features = custom_features
-        logger.info("Using provided custom feature vector for testing.")
+    # Load the target cartilage for ICP
+    if bone_type == "femur":
+        native_cart = femoral_cart
     else:
-        feat_path = case_dir / "features.npy"
-        if not feat_path.exists():
-            raise FileNotFoundError(f"Features file not found: {feat_path}")
-        # Load features
-        features = np.load(str(feat_path))
+        medial_path = mesh_dir / "medial_tibial_cartilage.obj"
+        lateral_path = mesh_dir / "lateral_tibial_cartilage.obj"
         
-    if features.ndim == 1:
-        features = features.reshape(1, -1)
+        cart_meshes = []
+        if medial_path.exists():
+            cart_meshes.append(pv.read(str(medial_path)))
+        if lateral_path.exists():
+            cart_meshes.append(pv.read(str(lateral_path)))
+            
+        if not cart_meshes:
+            logger.warning("No native tibia cartilages found. Skipping.")
+            return None
+            
+        native_cart = cart_meshes[0]
+        if len(cart_meshes) > 1:
+            native_cart = native_cart.merge(cart_meshes[1])
+            
+    # 3. Handle Laterality Reflection
+    # Generic models are based on DU02 (RIGHT knee).
+    # If patient is LEFT knee, reflect patient cartilage to RIGHT space for fitting.
+    if is_left:
+        logger.info("Reflecting native cartilage to RIGHT space for fitting...")
+        native_cart.points[:, 0] = -native_cart.points[:, 0]
+        femoral_cart.points[:, 0] = -femoral_cart.points[:, 0]
         
-    # Load models
-    pca, regressor, scaler, template_mesh = load_models(bone_type)
+    # 4. Uniform Scale Factor
+    # Always compute from Femur to avoid issues with missing lateral tibia cartilage
+    generic_femur_proxy_path = VISUAL_MODEL_DIR / "generic_femur_proxy.obj"
+    generic_femur_proxy = pv.read(str(generic_femur_proxy_path))
     
-    # 1. Scale features
-    scaled_feats = scaler.transform(features)
+    generic_width = generic_femur_proxy.bounds[1] - generic_femur_proxy.bounds[0]
+    native_width = femoral_cart.bounds[1] - femoral_cart.bounds[0]
+    scale_factor = native_width / generic_width if generic_width > 0 else 1.0
+    logger.info(f"Derived global scale factor (from femur): {scale_factor:.3f}")
     
-    # 2. Predict PCA scores
-    pred_scores = regressor.predict(scaled_feats)
+    # Apply scale to generic bone and proxy (centered around proxy centroid)
+    generic_centroid = np.mean(generic_proxy.points, axis=0)
     
-    # 3. QA Gate: Mahalanobis Distance
-    # Calculate distance in the uncorrelated PCA space
-    std_devs = np.sqrt(pca.explained_variance_)
-    std_devs = np.maximum(std_devs, 1e-6) # avoid div by zero
+    scale_transform = vtk.vtkTransform()
+    scale_transform.Translate(generic_centroid)
+    scale_transform.Scale(scale_factor, scale_factor, scale_factor)
+    scale_transform.Translate(-generic_centroid[0], -generic_centroid[1], -generic_centroid[2])
     
-    m_dist = np.sqrt(np.sum((pred_scores[0] / std_devs) ** 2))
-    logger.info(f"Predicted PCA scores: {pred_scores[0]}")
-    logger.info(f"Mahalanobis Distance: {m_dist:.2f} sigma")
+    scaled_bone = generic_bone.copy()
+    scaled_bone.transform(scale_transform, inplace=True)
+    scaled_proxy = generic_proxy.copy()
+    scaled_proxy.transform(scale_transform, inplace=True)
     
-    if m_dist > MAHALANOBIS_THRESHOLD:
-        logger.error(f"QA GATE FAILED: Mahalanobis distance ({m_dist:.2f}) exceeds threshold ({MAHALANOBIS_THRESHOLD} sigma).")
-        logger.error("The input MRI features are statistically out-of-distribution.")
-        logger.error("ACTION REQUIRED: Aborting MRI-only synthesis. Fallback to patient CT scan required.")
-        import json
-        sigma_path = case_dir / f"{bone_type}_sigma.json"
-        with open(sigma_path, "w") as f:
-            json.dump({"sigma": float(m_dist)}, f)
-        raise MahalanobisGateFailure(f"Mahalanobis distance ({m_dist:.2f}) exceeds threshold ({MAHALANOBIS_THRESHOLD} sigma).")
+    # 5. Coarse Pre-Alignment (Centroid Translation)
+    scaled_centroid = np.mean(scaled_proxy.points, axis=0)
+    native_centroid = np.mean(native_cart.points, axis=0)
+    translation = native_centroid - scaled_centroid
+    
+    coarse_transform = vtk.vtkTransform()
+    coarse_transform.Translate(translation)
+    
+    scaled_proxy.transform(coarse_transform, inplace=True)
+    
+    # 6. Rigid ICP (Fine Alignment)
+    logger.info("Running Rigid ICP (Scaled Proxy -> Native Cartilage)...")
+    icp = vtk.vtkIterativeClosestPointTransform()
+    icp.SetSource(scaled_proxy)
+    icp.SetTarget(native_cart)
+    icp.GetLandmarkTransform().SetModeToRigidBody()
+    icp.SetMaximumNumberOfIterations(100)
+    icp.SetMaximumMeanDistance(1e-5)
+    icp.Update()
+    
+    icp_transform = vtk.vtkTransform()
+    icp_transform.SetMatrix(icp.GetMatrix())
+    
+    # The total transform mapping original generic geometry to native cartilage
+    total_transform = vtk.vtkTransform()
+    total_transform.PostMultiply()
+    total_transform.Concatenate(scale_transform)
+    total_transform.Concatenate(coarse_transform)
+    total_transform.Concatenate(icp_transform)
+    
+    # 7. Apply total transform to Generic Bone
+    final_bone = generic_bone.copy()
+    final_bone.transform(total_transform, inplace=True)
+    
+    # 8. Visual Boolean Clip
+    logger.info("Running visual boolean clipping...")
+    from backend.mesh_processing.boolean_resolution import resolve_bone_cartilage_boundary
+    final_bone, route = resolve_bone_cartilage_boundary(final_bone, native_cart)
+    logger.info(f"Clipping finished via: {route}")
+    
+    # If left, reflect back to patient's true LEFT space!
+    if is_left:
+        logger.info("Reflecting aligned bone back to LEFT space...")
+        final_bone.points[:, 0] = -final_bone.points[:, 0]
         
-    logger.info("QA Gate Passed (Note: catches gross outliers only; not a substitute for the <2mm clinical accuracy bound).")
-    
-    import json
-    sigma_path = case_dir / f"{bone_type}_sigma.json"
-    with open(sigma_path, "w") as f:
-        json.dump({"sigma": float(m_dist)}, f)
-    
-    # 4. Reconstruct mesh
-    pred_flat = pca.inverse_transform(pred_scores)
-    pred_verts = pred_flat.reshape(-1, 3)
-    
-    # Update template mesh
-    synth_mesh = template_mesh.copy()
-    synth_mesh.points = pred_verts
-    
-    # Save output
-    out_path = case_dir / "meshes" / f"synthetic_{bone_type}.obj"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    synth_mesh.save(str(out_path))
-    
-    logger.info(f"Successfully saved synthetic mesh to {out_path.name}")
-    
-    # Explicit clinical warning
-    logger.warning(f"CLINICAL USAGE CONSTRAINT: Outputs from this module must not be used as the sole basis for implant dimension decisions.")
+    out_path = mesh_dir / f"visual_{bone_type}.obj"
+    final_bone.save(str(out_path))
+    logger.info(f"Successfully saved visual mesh to {out_path.name}")
+    logger.warning("CLINICAL USAGE CONSTRAINT: This mesh is an illustrative proxy and MUST NOT be used for quantitative analysis or surgical planning.")
     
     return out_path
 
 def main():
-    parser = argparse.ArgumentParser(description="Synthesize bone meshes from MRI features.")
-    parser.add_argument("case", help="Case ID (e.g., DU03)")
-    parser.add_argument("--test-ood", action="store_true", help="Test QA gate with an out-of-distribution vector")
+    parser = argparse.ArgumentParser(description="Generic Bone Visual Fitting Tool")
+    parser.add_argument("case_id", help="The case ID to process (e.g., DU03)")
     args = parser.parse_args()
     
-    case_dir = SCRATCH_DIR / args.case
+    case_dir = SCRATCH_DIR / args.case_id
     if not case_dir.exists():
-        logger.error(f"Case directory not found: {case_dir}")
+        logger.error(f"Case directory {case_dir} does not exist.")
         sys.exit(1)
         
-    custom_features = None
-    if args.test_ood:
-        # Create a dummy out-of-distribution feature vector (e.g., extreme sizes)
-        # Using [10000.0, ...] to ensure it trips the gate
-        custom_features = np.array([[10000.0] * 9])
-        logger.info("=== RUNNING IN OOD TEST MODE ===")
-        
-    try:
-        synthesize_bone(case_dir, "femur", custom_features)
-        synthesize_bone(case_dir, "tibia", custom_features)
-        logger.info("\nSynthesis complete for both bones.")
-    except MahalanobisGateFailure:
-        logger.error("\nSynthesis aborted due to QA gate failure.")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"\nSynthesis failed: {e}")
-        sys.exit(1)
+    align_and_scale_bone(case_dir, "femur")
+    align_and_scale_bone(case_dir, "tibia")
+    logger.info("\nVisual fitting complete for both bones.")
 
 if __name__ == "__main__":
     main()
-
