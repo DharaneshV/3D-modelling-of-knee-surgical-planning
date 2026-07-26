@@ -73,11 +73,14 @@ def run_pipeline_async(task_id: str, file_path: str, file_hash: str = None):
         with PIPELINE_LOCK:
             update_status(task_id, "segmenting", modality=modality)
             try:
+                from src.synthesis.bone_from_mri import MahalanobisGateFailure
                 _execute_pipeline(task_id, file_path, modality)
                 
                 # Write to cache on success
                 if file_hash:
                     write_cache(file_hash, task_id)
+            except MahalanobisGateFailure as e:
+                update_status(task_id, "ct_fallback_required", reason=str(e), modality=modality)
             except Exception as e:
                 update_status(task_id, "failed", reason=str(e), modality=modality)
                 
@@ -133,12 +136,26 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     if not os.path.exists(mask_output):
         raise Exception(f"Segmentation returned 0 but mask file {mask_output} is missing. STDOUT: {result.stdout} STDERR: {result.stderr}")
 
+    if modality == "MRI":
+        update_status(task_id, "synthesizing_bone", modality=modality)
+        from src.synthesis.extract_cart_features import extract_cart_features
+        from src.synthesis.bone_from_mri import synthesize_bone
+        import shutil
+        
+        features = extract_cart_features(mask_output)
+        
+        synth_femur_path = synthesize_bone(task_mesh_dir, "femur", custom_features=features)
+        synth_tibia_path = synthesize_bone(task_mesh_dir, "tibia", custom_features=features)
+        
+        shutil.move(synth_femur_path, task_mesh_dir / "femur_unknown.obj")
+        shutil.move(synth_tibia_path, task_mesh_dir / "tibia_unknown.obj")
+
     # 3. Meshing
     update_status(task_id, "meshing", modality=modality)
     mesh_cmd = [python_exe, "scripts/run_meshing.py", "--input", mask_output, "--output_dir", str(task_mesh_dir), "--track", track]
     result_mesh = subprocess.run(mesh_cmd, capture_output=True, text=True)
     if result_mesh.returncode != 0:
-        raise Exception(f"Meshing script failed: {result_mesh.stderr.strip()}")
+        raise Exception(f"Meshing script failed:\nSTDOUT:\n{result_mesh.stdout.strip()}\nSTDERR:\n{result_mesh.stderr.strip()}")
     
     # Read laterality summary if it exists (CT only)
     laterality_summary = {}

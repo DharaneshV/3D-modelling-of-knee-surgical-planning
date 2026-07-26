@@ -26,6 +26,7 @@ import json
 import numpy as np
 import SimpleITK as sitk
 from scipy.ndimage import label, center_of_mass
+from scipy.spatial import cKDTree
 from pathlib import Path
 
 # Suppress noisy nnU-Net / torch warnings
@@ -238,12 +239,50 @@ def validate_combined_mask(mask_arr: np.ndarray, spacing: tuple) -> dict:
                 logger.warning(f"  {name}: only {count} voxels (< {min_voxels} threshold) — treating as absent.")
             counts[name] = 0
 
-    has_left = counts["femur_left"] > 0 and counts["tibia_left"] > 0 and counts["patella_left"] > 0
-    has_right = counts["femur_right"] > 0 and counts["tibia_right"] > 0 and counts["patella_right"] > 0
+    # Adjacency check for joint presence
+    has_left = False
+    has_right = False
+    
+    def check_joint(femur_label, tibia_label):
+        if counts[labels_map[femur_label]] == 0 or counts[labels_map[tibia_label]] == 0:
+            return False
+        
+        # Get physical coords
+        z, y, x = np.where(mask_arr == femur_label)
+        f_pts = np.column_stack((x, y, z))
+        z, y, x = np.where(mask_arr == tibia_label)
+        t_pts = np.column_stack((x, y, z))
+        
+        # Physical coordinates
+        def get_phys(pts):
+            return np.array([
+                [pt[0]*spacing[0], pt[1]*spacing[1], pt[2]*spacing[2]] 
+                for pt in pts
+            ])
+            
+        f_phys = get_phys(f_pts)
+        t_phys = get_phys(t_pts)
+        
+        # Subsample
+        np.random.seed(42)
+        if len(f_phys) > 10000: f_phys = f_phys[np.random.choice(len(f_phys), 10000, replace=False)]
+        if len(t_phys) > 10000: t_phys = t_phys[np.random.choice(len(t_phys), 10000, replace=False)]
+        
+        tree = cKDTree(f_phys)
+        dists, _ = tree.query(t_phys)
+        min_dist = np.min(dists)
+        logger.info(f"  Joint line distance ({labels_map[femur_label]}/{labels_map[tibia_label]}): {min_dist:.2f} mm")
+        return min_dist <= 5.0
+
+    logger.info("Verifying anatomical joint line presence (<5mm gap)...")
+    if counts["patella_left"] > 0:
+        has_left = check_joint(LABEL_FEMUR_L, LABEL_TIBIA_L)
+    if counts["patella_right"] > 0:
+        has_right = check_joint(LABEL_FEMUR_R, LABEL_TIBIA_R)
 
     if not has_left and not has_right:
         raise ValueError(
-            "Anatomical validation failed: neither side has a complete femur+tibia+patella triplet."
+            "Anatomical validation failed: neither side has an intact joint line (femur-tibia gap <= 5mm) and patella."
         )
 
     sides_present = []
@@ -343,6 +382,13 @@ def segment(input_path: str, output_path: str,
     if patella_l_arr is not None: combined[patella_l_arr > 0] = LABEL_PATELLA_L
     if patella_r_arr is not None: combined[patella_r_arr > 0] = LABEL_PATELLA_R
 
+    # Write output mask
+    logger.info("Writing output mask...")
+    mask_img = sitk.GetImageFromArray(combined)
+    mask_img.CopyInformation(ct)
+    sitk.WriteImage(mask_img, output_path)
+    logger.info(f"Mask written: {output_path}")
+
     # ── 4. Anatomical validation & summary
     summary_dict = validate_combined_mask(combined, ct.GetSpacing())
     
@@ -350,14 +396,6 @@ def segment(input_path: str, output_path: str,
     with open(summary_path, "w") as f:
         json.dump(summary_dict, f, indent=4)
     logger.info(f"Laterality summary written: {summary_path}")
-
-    # ── 5. Write output mask
-    logger.info("Writing output mask...")
-    mask_img = sitk.GetImageFromArray(combined)
-    mask_img.CopyInformation(ct)
-    
-    sitk.WriteImage(mask_img, output_path)
-    logger.info(f"Mask written: {output_path}")
 
     # Cleanup intermediate files
     if cleanup_intermediate:

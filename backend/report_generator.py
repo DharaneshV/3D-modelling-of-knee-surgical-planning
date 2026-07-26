@@ -154,12 +154,17 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
             metrics["tibia_ml"], metrics["tibia_ap"] = get_roi_sizing(tibia.vertices, t_axis, is_femur=False, side=side)
             
             # JSW Calculation
-            metrics["jsw"] = 0.0
             metrics["jsw_overlap"] = False
             jsw_computed = False
             
+            if modality == "CT":
+                metrics["jsw"] = "N/A - Requires MRI"
+                jsw_computed = True
+            else:
+                metrics["jsw"] = 0.0
+            
             # Mask-based JSW Calculation
-            if mask_path.exists() and HAS_SITK:
+            if not jsw_computed and mask_path.exists() and HAS_SITK:
                 try:
                     f_mask = arr == f_label
                     t_mask = arr == t_label
@@ -196,6 +201,9 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
                         
                         correction = np.sum(np.abs(v / center_dist) * spacing) if center_dist > 0 else 0.0
                         surface_dist = center_dist - correction
+                        
+                        if surface_dist <= 0:
+                            metrics["jsw_overlap"] = True
                         surface_dist = max(0.0, surface_dist)
                         
                         metrics["jsw"] = float(f"{surface_dist:.1f}")
@@ -234,8 +242,10 @@ def build_metrics_list(metrics, modality):
         return f"{val}{unit}"
 
     jsw_caveat = "Minimum distance at joint space"
-    if metrics.get("jsw_overlap"):
-        jsw_caveat = "Measurement uncertain — mesh overlap detected"
+    if modality == "CT":
+        jsw_caveat = "N/A - Requires MRI"
+    elif metrics.get("jsw_overlap"):
+        jsw_caveat = "Measurement uncertain — resolution limit or mesh overlap"
     elif isinstance(metrics["jsw"], str) and "N/A" in metrics["jsw"]:
         jsw_caveat = "Required mesh file missing"
         
@@ -287,6 +297,26 @@ def build_metrics_list(metrics, modality):
 def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: str, mask_path: str = None):
     scan_date = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
+    quarantine_log_path = Path(mesh_dir) / "quarantine_log.json"
+    quarantined_bones = {}
+    quarantine_warnings = []
+    if quarantine_log_path.exists():
+        try:
+            with open(quarantine_log_path, "r") as f:
+                q_log = json.load(f)
+                for entry in q_log:
+                    for b in entry.get("bones", []):
+                        quarantined_bones[b] = entry
+                    bones_str = " and ".join([b.replace('_', ' ').title() for b in entry.get("bones", [])])
+                    if entry.get("status") == "deleted":
+                        quarantine_warnings.append(
+                            f"<b><font color='red'>WARNING:</font> The {bones_str} were automatically excluded from 3D analysis "
+                            f"due to severe topological intersection (artefact). They intersected by {entry.get('intersection_faces')} "
+                            f"faces, exceeding the {entry.get('threshold')} face safety threshold. Downstream spatial metrics are unavailable for these regions.</b>"
+                        )
+        except Exception as e:
+            print("Failed to read quarantine log:", e)
+    
     # Read laterality summary
     laterality_summary_path = Path(mesh_dir) / "laterality_summary.json"
     laterality_summary = {}
@@ -303,6 +333,7 @@ def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: 
     all_metrics = {}
     for side in sides_present:
         all_metrics[side] = calculate_side_metrics(Path(mesh_dir), side, laterality_summary, modality, mask_path)
+        all_metrics[side]['quarantined'] = quarantined_bones
         
     # Impression logic
     impressions = ["Quantitative knee geometry analysis completed successfully."]
@@ -330,6 +361,7 @@ def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: 
     )
 
     data_dict = {
+        "quarantine_warnings": quarantine_warnings,
         "task_id": task_id,
         "modality": modality,
         "scan_date": scan_date,
@@ -385,6 +417,10 @@ def generate_pdf(data_dict, mesh_dir, task_id):
     story.append(Spacer(1, 12))
     
     # Overlay Image
+    if data_dict.get("quarantine_warnings"):
+        for w in data_dict.get("quarantine_warnings"):
+            story.append(Paragraph(w, styles['Normal']))
+            story.append(Spacer(1, 12))
     slice_img_path = Path(mesh_dir).parent.parent / "tasks" / task_id / "slices" / "axial_15.png"
     if slice_img_path.exists():
         story.append(Paragraph("<b>Segmentation Overlay (Mid-Axial)</b>", styles['Heading3']))
