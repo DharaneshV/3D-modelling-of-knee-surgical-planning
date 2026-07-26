@@ -138,7 +138,26 @@ def align_and_scale_bone(case_dir: Path, bone_type: str) -> Path:
     final_bone = generic_bone.copy()
     final_bone.transform(total_transform, inplace=True)
     
-    # 8. Visual Boolean Clip
+    # 7b. Clip bone to its relevant articular half using native cartilage centroid as the clip plane.
+    # This prevents the two full-length generic bones from visually merging into a single green blob —
+    # we only need the distal femur (condyles) and proximal tibia (plateau) for visualization.
+    # The clip plane is set at the centroid of the cartilage that was used for ICP.
+    cart_centroid = np.mean(native_cart.points, axis=0)
+    if bone_type == "femur":
+        # Keep the distal (lower-Y) half — the condylar end — clip away the shaft above the cartilage
+        final_bone = final_bone.clip(normal=(0, 1, 0), origin=cart_centroid, invert=False)
+    else:
+        # Keep the proximal (upper-Y) half — the plateau end — clip away the shaft below the cartilage
+        final_bone = final_bone.clip(normal=(0, -1, 0), origin=cart_centroid, invert=False)
+    
+    if final_bone.n_cells == 0:
+        logger.warning(f"Half-bone clip produced empty mesh for {bone_type} — falling back to full bone.")
+        final_bone = generic_bone.copy()
+        final_bone.transform(total_transform, inplace=True)
+    else:
+        logger.info(f"Half-bone clip retained {final_bone.n_cells} cells (articular end only).")
+    
+    # 8. Visual Boolean Clip (bone vs cartilage interface)
     logger.info("Running visual boolean clipping...")
     from backend.mesh_processing.boolean_resolution import resolve_bone_cartilage_boundary
     final_bone, route = resolve_bone_cartilage_boundary(final_bone, native_cart)

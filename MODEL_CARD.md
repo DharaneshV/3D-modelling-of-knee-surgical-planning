@@ -16,7 +16,8 @@ The MRI-only pipeline (`bone_from_mri.py`) generates bone meshes purely for **il
 > **CRITICAL USAGE CAVEAT (ILLUSTRATIVE ONLY):**
 > 1. **No Quantitative Accuracy:** This pipeline does **NOT** synthesize patient-specific bone morphology. It provides a visual proxy only.
 > 2. **Not for Implant Sizing:** Outputs from this module must **not** be used as the basis for implant dimension decisions, joint space width calculations, or surgical planning.
-> 3. **Osteophyte Omission:** The generic bone model does not contain osteophytes or patient-specific deformities (e.g., varus/valgus). When visualized next to diseased cartilage (e.g., severe OA cases from the OAI dataset), the generic bone shape will not reflect these abnormalities, which may result in visual misalignment or clipping fallback.
+> 3. **Osteophyte & Deformity Omission:** The generic reference bone does not contain osteophytes or patient-specific deformities (e.g., varus/valgus malalignment). When visualised next to diseased cartilage, the smooth generic bone shape will not reflect these abnormalities.
+> 4. **Tibial Clipping Behaviour in Severe OA:** Bone-cartilage interface clipping uses VTK's boolean difference filter. In severe OA cases where tibial cartilage is heavily eroded or produces non-manifold mesh geometry, this filter commonly fails and the pipeline falls back to an unclipped generic tibia. The unclipped tibia extends beyond the joint space and can appear oversized relative to the cartilage remnants. This is an expected graceful degradation — the scene remains renderable and communicates the degree of cartilage loss — but viewers should be aware that the tibia geometry in advanced OA cases does not represent the true joint boundary.
 
 ### CT Pipeline: Clinical Fallback
 The CT pipeline (`run_ct_segmentation.py`) remains the default, clinically viable pathway for tight-tolerance sizing and morphological analysis.
