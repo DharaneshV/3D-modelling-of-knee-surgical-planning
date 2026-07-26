@@ -73,14 +73,11 @@ def run_pipeline_async(task_id: str, file_path: str, file_hash: str = None):
         with PIPELINE_LOCK:
             update_status(task_id, "segmenting", modality=modality)
             try:
-                from src.synthesis.bone_from_mri import MahalanobisGateFailure
                 _execute_pipeline(task_id, file_path, modality)
                 
                 # Write to cache on success
                 if file_hash:
                     write_cache(file_hash, task_id)
-            except MahalanobisGateFailure as e:
-                update_status(task_id, "ct_fallback_required", reason=str(e), modality=modality)
             except Exception as e:
                 update_status(task_id, "failed", reason=str(e), modality=modality)
                 
@@ -147,7 +144,6 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         update_status(task_id, "synthesizing_bone", modality=modality)
         from src.synthesis.bone_from_mri import align_and_scale_bone
         
-        # We don't need extract_cart_features anymore!
         align_and_scale_bone(task_mesh_dir, "femur")
         align_and_scale_bone(task_mesh_dir, "tibia")
         
