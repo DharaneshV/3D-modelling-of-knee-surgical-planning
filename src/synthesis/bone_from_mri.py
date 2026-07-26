@@ -24,10 +24,12 @@ def align_and_scale_bone(case_dir: Path, bone_type: str) -> Path:
     """
     logger.info(f"\n--- Visual Fitting {bone_type} for {case_dir.name} ---")
     
-    mesh_dir = case_dir / "meshes"
+    mesh_dir = case_dir / "meshes" if (case_dir / "meshes").exists() else case_dir
     
     # Check laterality
     summary_path = case_dir / "laterality_summary.json"
+    if not summary_path.exists() and (mesh_dir / "laterality_summary.json").exists():
+        summary_path = mesh_dir / "laterality_summary.json"
     side = "right"
     if summary_path.exists():
         with open(summary_path) as f:
