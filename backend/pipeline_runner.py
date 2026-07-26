@@ -122,8 +122,8 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         seg_cmd = [python_exe, "src/segmentation/run_mri_segmentation.py", "--input", file_path, "--output", mask_output]
         track = "mri_cartilage"
         expected_parts = [
-            {"file": "femur_unknown.obj", "label": "Femur Bone", "color": "#e74c3c"},
-            {"file": "tibia_unknown.obj", "label": "Tibia Bone", "color": "#2ecc71"},
+            {"file": "visual_femur.obj", "label": "Femur Bone (Visual)", "color": "#e74c3c"},
+            {"file": "visual_tibia.obj", "label": "Tibia Bone (Visual)", "color": "#2ecc71"},
             {"file": "femoral_cartilage.obj", "label": "Femoral Cartilage", "color": "#ff9f43"},
             {"file": "medial_tibial_cartilage.obj", "label": "Medial Tibial Cartilage", "color": "#00d2d3"},
             {"file": "lateral_tibial_cartilage.obj", "label": "Lateral Tibial Cartilage", "color": "#54a0ff"}
@@ -136,27 +136,21 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     if not os.path.exists(mask_output):
         raise Exception(f"Segmentation returned 0 but mask file {mask_output} is missing. STDOUT: {result.stdout} STDERR: {result.stderr}")
 
-    if modality == "MRI":
-        update_status(task_id, "synthesizing_bone", modality=modality)
-        from src.synthesis.extract_cart_features import extract_cart_features
-        from src.synthesis.bone_from_mri import synthesize_bone
-        import shutil
-        
-        features = extract_cart_features(mask_output)
-        
-        synth_femur_path = synthesize_bone(task_mesh_dir, "femur", custom_features=features)
-        synth_tibia_path = synthesize_bone(task_mesh_dir, "tibia", custom_features=features)
-        
-        shutil.move(synth_femur_path, task_mesh_dir / "femur_unknown.obj")
-        shutil.move(synth_tibia_path, task_mesh_dir / "tibia_unknown.obj")
-
     # 3. Meshing
     update_status(task_id, "meshing", modality=modality)
     mesh_cmd = [python_exe, "scripts/run_meshing.py", "--input", mask_output, "--output_dir", str(task_mesh_dir), "--track", track]
     result_mesh = subprocess.run(mesh_cmd, capture_output=True, text=True)
     if result_mesh.returncode != 0:
         raise Exception(f"Meshing script failed:\nSTDOUT:\n{result_mesh.stdout.strip()}\nSTDERR:\n{result_mesh.stderr.strip()}")
-    
+
+    if modality == "MRI":
+        update_status(task_id, "synthesizing_bone", modality=modality)
+        from src.synthesis.bone_from_mri import align_and_scale_bone
+        
+        # We don't need extract_cart_features anymore!
+        align_and_scale_bone(task_mesh_dir, "femur")
+        align_and_scale_bone(task_mesh_dir, "tibia")
+        
     # Read laterality summary if it exists (CT only)
     laterality_summary = {}
     laterality_summary_path = task_mesh_dir / "laterality_summary.json"

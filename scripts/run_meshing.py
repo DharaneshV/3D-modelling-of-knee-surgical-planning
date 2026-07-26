@@ -110,49 +110,6 @@ def main():
         # We will add to plotter AFTER boolean resolution if applicable.
         pass
 
-    # Post-hoc Boundary Resolution for Synthetic Bone & Cartilage
-    if args.track == 'mri_cartilage':
-        print("Running post-hoc boolean boundary resolution for synthetic bone and cartilage...")
-        resolution_pairs = [
-            ('femur_unknown', 'femoral_cartilage'),
-            ('tibia_unknown', 'medial_tibial_cartilage'),
-            ('tibia_unknown', 'lateral_tibial_cartilage')
-        ]
-        for bone_label, cart_label in resolution_pairs:
-            bone_path = os.path.join(args.output_dir, f"{bone_label}.obj")
-            cart_path = os.path.join(args.output_dir, f"{cart_label}.obj")
-            
-            if os.path.exists(bone_path) and os.path.exists(cart_path):
-                print(f"Resolving boundary for {bone_label} and {cart_label}...")
-                bone_mesh = pv.read(bone_path)
-                cart_mesh = pv.read(cart_path)
-                
-                try:
-                    resolved_bone, resolution_route = resolve_bone_cartilage_boundary(bone_mesh, cart_mesh)
-                    resolved_bone.save(bone_path)
-                    print(f"Saved resolved {bone_label} via {resolution_route}.")
-                    
-                    import json
-                    route_path = os.path.join(args.output_dir, f"{bone_label}_{cart_label}_resolution.json")
-                    with open(route_path, "w") as f:
-                        json.dump({"route": resolution_route}, f)
-                    
-                    # Run Verification Script
-                    print(f"Running verification script for {bone_label} and {cart_label}...")
-                    verify_cmd = [sys.executable, "scripts/verify_mesh_boundaries.py", 
-                                  "--mesh1", bone_path, 
-                                  "--mesh2", cart_path, 
-                                  "--tolerance", "0.1"]
-                    verify_res = subprocess.run(verify_cmd, capture_output=True, text=True)
-                    if verify_res.returncode != 0:
-                        print(f"QA Verification FAILED for {bone_label} and {cart_label}: {verify_res.stderr} {verify_res.stdout}")
-                        # Depending on CI/QA failure behavior, we could fail here.
-                    else:
-                        print(f"QA Verification PASSED for {bone_label} and {cart_label}.")
-                except Exception as e:
-                    print(f"Boolean resolution failed for {bone_label} and {cart_label}: {e}")
-                    raise e
-
     # Re-build GLTF scene with potentially modified meshes
     for label_name in label_map.keys():
         comp_path = os.path.join(args.output_dir, f"{label_name}.obj")
