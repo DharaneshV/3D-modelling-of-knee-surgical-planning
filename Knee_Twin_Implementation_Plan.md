@@ -1,167 +1,333 @@
-# Knee Surgical Planning Twin — Implementation Plan
-### Merging the Dev Spec (9-week POC) with Research-Backed Upgrades
+# KneeTwin Implementation Plan v2 — MRI-Only Pipeline
 
-This plan takes the baseline pipeline from the dev spec (threshold segmentation → marching cubes → AR) and layers in specific upgrades from the research report wherever they meaningfully raise accuracy or de-risk a milestone, without blowing up the 9-week timeline. Each week below states: **what the spec asks for**, **what to actually build**, and **why** (citing the research where it changes the approach).
+**Supersedes:** the 9-week CT+MRI dual-track plan.
+**Core change:** per-patient CT is dropped. Bone is synthesized from MRI cartilage geometry, using a shape model trained once, offline, on your existing paired CT+MRI cases.
+
+Status tags used throughout:
+- ✅ **Done** — already built and working, per current pipeline state. Reuse as-is.
+- ⚠️ **Done but needs rewiring** — code exists but assumes the old CT-per-case flow; needs to be repointed.
+- 🔲 **Not built** — net-new work for this plan.
+- ❌ **Cut** — remove from the pipeline entirely; do not port forward.
 
 ---
 
-## 0. Before Week 1 — Environment & Decisions
+## 0. Decisions Locked
 
-| Decision | Recommendation | Why |
+| Decision | Detail |
+|---|---|
+| Per-case modality | MRI only. No CT ingestion, no CT-MRI registration, at inference time. |
+| Bone generation | Synthetic — Statistical Shape Model (PCA), conditioned on MRI-measured cartilage landmarks. Not a learned network (insufficient paired data). |
+| Role of CT | Training data only, consumed once, offline, to build the shape model. Never touched again per-case. |
+| Meshing | Single unified multi-label `vtkSurfaceNets3D` pass across cartilage + synthesized bone labels, Taubin-smoothed. |
+| Pitch framing | "MRI-only surgical planning — cartilage measured directly, bone synthesized and scaled to it, no radiation, single scan, single visit." |
+
+**⚠️ Offline training dataset:** of the 7 paired CT-MRI cases, only DU02, DU03, and DU06 have confirmed valid registration. DU01 is a post-surgical TKA case (excluded — non-representative anatomy), DU04/DU05 are missing CT (excluded — no pair to train on), and DU07 failed due to input segmentation failure (TotalSegmentator missed the femur due to cropped FOV). **Effective usable training set is 3 cases**. Section A.7 below reflects this.
+
+---
+
+## Track 1 — Per-Case Pipeline (production, runs on every new patient, MRI only)
+
+### Step 1 — MRI Ingestion & Cartilage/Bone-Region Segmentation
+- ✅ CartiMorph segmentation — label semantics confirmed (`Background=0, Femur=1, Femoral Cartilage=2, Tibia=3, MTiC=4, LTiC=5`)
+- ✅ RAI reorientation fix — required for CartiMorph to segment correctly, already applied
+- ✅ Segmentation collapse gate — QA safeguard against CartiMorph failure modes
+- 🔲 ACL/PCL/meniscus segmentation — CartiMorph doesn't cover these; still needs the pre-trained U-Net / Swin UNETR track from the original spec (Section 3). Not started.
+- ❌ Any CT ingestion, N4-skip / HU-threshold preprocessing for CT — remove Track B entirely from the per-case path.
+
+### Step 2 — Bone Synthesis (replaces CT bone segmentation)
+- 🔲 `synthesize_bone()` call into the per-case pipeline — **blocked on Track 2 (offline training) completing first.** This is the single largest gap between the current pipeline and this plan.
+- Inference QA gate (Mahalanobis distance vs. training distribution, reject + flag if >3σ) — 🔲 not built, spec'd in A.6.
+
+### Step 3 — Unified Meshing
+- ✅ Migrated to unified multi-label `vtkSurfaceNets3D` meshing (already replaces old per-label marching-cubes approach that caused joint-boundary overlaps)
+- ✅ 1-voxel-gap smoothing bulge bug fixed
+- ⚠️ Needs rewiring: currently meshes cartilage + CT-derived bone labels together; repoint to mesh cartilage + **synthesized** bone labels together once Step 2 exists. No change to the meshing code itself, only its inputs.
+- 🔲 Confirm Taubin smoothing (vs. default Laplacian) is applied post-mesh — carry forward from original spec if not already in the current pipeline; Laplacian will corrupt implant-sizing measurements.
+
+### Step 4 — Measurements
+- ✅ JSW metric (ROI-cropped boundary erosion + cKDTree, anisotropic surface projection, ~9.6s/side) — valid on the MRI track, keep as-is
+- ❌ CT-track JSW — already disabled (correctly; CT can't image cartilage), no action needed
+- ✅ Fabricated cartilage metric removed
+- ✅ Tibia AP depth fix (10%/30mm ROI + 2D PCA axis recovery, replacing full-shaft measurement)
+- ✅ Bilateral knee support (laterality-aware label maps, centroid-distance splitting) — carries forward unchanged, MRI-only doesn't affect this
+
+### Step 5 — Reporting & AR
+- ✅ FastAPI backend with modality auto-detection and background task processing — ⚠️ modality auto-detection can be simplified/removed since only MRI is accepted per-case now; decide whether to keep as a validation guard (reject CT uploads with a clear message) or strip it
+- ✅ Three.js 3D viewer (three-column layout: original scan, left knee, right knee)
+- ✅ Batch QA system (`batch_qa_report.py`) with quarantine logging and clinical PDF warnings
+- ✅ Caching architecture (SHA-256 hash + `PIPELINE_VERSION` as cache key)
+- ✅ PDF clinical report pipeline via ReportLab
+
+### Cut from the per-case path entirely
+- ❌ CT ingestion (Track B from original Week 1)
+- ❌ CT bone segmentation via TotalSegmentator, per-case
+- ❌ CT-MRI rigid/affine registration (original Week 5)
+- ❌ Metal streak artifact check, HU-threshold QA gate — these were CT-specific
+
+---
+
+## Track 2 — Offline Bone-Shape-Model Training (one-time, run before Track 1 Step 2 works)
+
+This is new work. Nothing here has been built yet, but two pieces of existing infrastructure carry over directly:
+- ✅ GPU-accelerated TotalSegmentator inference (RTX 4050, CUDA 12.1, ~4 min/case) — use this to produce the bone meshes for the 3 training cases.
+- ✅ `vtkSurfaceNets3D` unified meshing — reuse for producing clean bone mesh surfaces from the training CT labels before correspondence/PCA.
+
+### A.1 Component Summary
+Produces a PCA shape space over bone meshes plus a ridge regressor mapping MRI-measured cartilage landmarks → shape coefficients. At inference, `synthesize_bone()` predicts coefficients from a new patient's cartilage mask and deforms the mean bone shape accordingly.
+
+### A.2 Inputs
+| Input | Source | Notes |
 |---|---|---|
-| Language | Python-only | MATLAB parallel path adds no accuracy benefit; skip unless a sponsor explicitly needs MathWorks credit |
-| Core framework | **MONAI** (PyTorch) instead of raw U-Net scripts | MONAI Core ships NIfTI/DICOM-native transforms, pre-built Swin UNETR, and class-imbalance loss functions out of the box — saves you writing preprocessing boilerplate |
-| MRI Dataset | **OAI-ZIB** (3D DESS MRI, expert bone+cartilage masks) | Standard benchmark set with expert annotations — avoids manual tracing for Track A |
-| CT Dataset | **TotalSegmentator** (CC-BY whole-body CT + bone masks) | Ships femur/tibia ground-truth masks for free; crop to knee region. Skip TCIA — cancer-focused, thin knee OA presence |
-| CT–MRI registration scoping | **Option (b): independent tracks** — CT (bone) and MRI (soft tissue) validated independently; Week 5 registration is a capability demo on matched cases if found, not a full-population requirement | Honest scoping for a 9-week timeline; avoids silently faking alignment between different patient anatomies |
-| Repo structure | Use the spec's structure as-is | It's already sound; add a `src/preprocessing/` folder (see Week 1) |
+| CT bone meshes (training) | DU02, DU03, DU06 | Generate via existing TotalSegmentator + vtkSurfaceNets3D pipeline |
+| MRI cartilage segmentation (training + inference) | CartiMorph output, resampled to 0.5mm isotropic | Labels: femoral cartilage, MTiC, LTiC |
+| Cartilage landmark vector (training + inference) | Extracted from cartilage mask, see A.4 | 9-dim per-case feature vector |
 
-Set up:
-```bash
-pip install monai simpleitk pydicom scikit-image pyvista vtk pandas
-```
+### A.3 Training Procedure
+**Step 1 — Mesh correspondence.** Register all training bone meshes into point-to-point correspondence via non-rigid ICP (e.g. `probreg` CPD) against a single reference case. 🔲 not built.
 
----
+**Step 2 — PCA shape space.** Stack aligned vertex matrices, fit PCA. With only 3–4 cases, expect at most 2–3 usable components (not the 6 assumed when 7 cases were in scope) — retain components explaining ≥95% variance and check that number honestly once correspondence is done. 🔲 not built.
 
-## Week 1 — Data Acquisition + QA
+**Step 3 — Landmark regressor.** Ridge regression from the 9-dim cartilage feature vector to PCA coefficients, fit on the same 3–4 cases. 🔲 not built.
 
-**Spec deliverable:** 5–8 validated DICOM cases, 1–2 held out.
+**QA gate (training):** LOO-CV mean-surface-distance ≤3.0mm (femur) / ≤2.5mm (tibia). With N=3, LOO-CV is a weak signal — flag this explicitly in the model card rather than presenting it as a validated error bound.
 
-> **Revised:** Two separate data tracks — preprocessing differs by modality.
-
-### Track A — MRI (Soft Tissue) → OAI-ZIB
-1. Pull cases from OAI-ZIB via HuggingFace (`YongchengYAO/OAIZIB-CM`) — already done.
-2. Preprocessing:
-   - **N4 Bias Field Correction** (MRI-only — corrects RF coil sensitivity variation, does not apply to CT).
-   - **Resampling to isotropic spacing** (B-spline for images, nearest-neighbor for masks).
-3. QA gate: flag slice spacing > 1.5mm or motion artifact — run **after** N4, since correction sometimes reveals hidden artifacts.
-
-### Track B — CT (Bone) → TotalSegmentator
-1. Pull 5–8 whole-body CT scans from the **TotalSegmentator** dataset (CC-BY licensed, ships with femur/tibia bone masks).
-2. **Crop to knee region** — TotalSegmentator volumes are whole-body; extract the knee bounding box using the femur/tibia label extent.
-3. Check patella label coverage — TotalSegmentator's label list has expanded across versions; if patella is absent, manually trace on the handful of cropped cases only.
-4. Preprocessing:
-   - **Resampling to isotropic spacing only** — no N4 (CT has no RF bias field).
-   - **Metal streak artifact check** — flag any post-op cases with implants; they corrupt HU thresholding.
-5. QA gate: same slice-spacing check; additionally flag any case where max HU > 5000 (probable metal artifact).
-
-### Patient-Mismatch Decision (flag now, not at Week 5)
-CT bone cases and MRI soft-tissue cases are from **different patients**. The Week 5 CT–MRI registration step assumes same-patient data. Resolution: **Option (b)** — validate tracks independently through Weeks 2–4; treat Week 5 registration as a capability demo on any matched cases found. Document explicitly in deliverables that full same-patient multi-modal validation is future work.
-
-**Why it matters:** the research report specifically flags the domain-shift problem — models trained on clean 3D DESS data fail on anisotropic FSE scans. Preprocessing differences between modalities must be applied correctly per-track from day one.
-
----
-
-## Week 2–3 — Bone Segmentation (CT)
-
-**Spec deliverable:** threshold-based femur/tibia/patella masks.
-
-**Build exactly as specified** — Hounsfield-unit thresholding is correct here. Bone-CT contrast is high enough that deep learning is unnecessary overhead for the POC.
-
-**Data source update:** Run against **TotalSegmentator-derived CT cases** (cropped to knee region), not OAI-ZIB.
-
-**New: visual sanity pass first.** TotalSegmentator uses whole-body CT protocols which vary more in slice thickness and reconstruction kernel than a dedicated knee-protocol CT. Do a quick visual check on your 5–8 cropped cases to confirm HU values behave consistently before locking in threshold values — don't assume the standard [200, 3000] range is optimal across all cases without verifying.
-
-**One addition:** run your Dice/Hausdorff metrics (Week 4 code) on this bone output as soon as it exists, even informally — don't wait for the formal Week 4 milestone to discover threshold values need tuning per-scanner.
-
----
-
-## Week 3–4 — Soft Tissue Segmentation (MRI)
-
-**Spec deliverable:** cartilage/ACL/PCL/meniscus masks via a pre-trained U-Net/nnU-Net checkpoint.
-
-**Upgrade recommendation:** if a pre-trained nnU-Net checkpoint isn't readily available or its Dice on your cases falls in the 0.70s, swap in **MONAI's Swin UNETR** reference implementation rather than training a U-Net from scratch. Reasoning from the research:
-- Standard CNNs struggle with cartilage specifically because they can't model long-range dependencies between the femoral and tibial articular surfaces — this is exactly why cartilage Dice lags bone Dice industry-wide.
-- Swin UNETR on knee MRI is reported at ~89% Dice for femoral cartilage and ~85% for tibial cartilage, which comfortably clears the spec's 0.75–0.85 soft-tissue target in Section 8.5, whereas a plain U-Net often sits right at the bottom edge of that range or below it.
-- MONAI ships this architecture pre-built — using it isn't "training a research model from scratch," it's swapping one config in an existing pipeline.
-
-**Fallback if timeline is tight:** stick with the pre-trained U-Net as the spec says; just budget an extra buffer day for Week 4 because soft-tissue Dice is the metric most likely to trigger the manual-review gate.
-
----
-
-## Week 4 — Accuracy Validation (Hard Gate)
-
-**Spec deliverable:** Dice + Hausdorff report per structure per case, using the exact `SimpleITK.LabelOverlapMeasuresImageFilter` / `HausdorffDistanceImageFilter` code already provided in Section 8.2–8.3.
-
-**Build as specified, no changes needed** — this code is already correct and matches standard practice (DSC, ASSD/Hausdorff are the field's standard metrics). Two small additions:
-1. Also log **Average Symmetric Surface Distance** if your SimpleITK version supports it — it's more sensitive to boundary jaggedness than Dice alone and gives you an early signal on mesh quality before Week 5.
-2. Enforce the gate literally in code (not just process): have the batch-eval script raise/flag any row below 0.90 (bone) or 0.75 (soft tissue) rather than relying on someone reading the CSV.
-
----
-
-## Week 5 — Mesh Generation + Registration
-
-**Spec deliverable:** marching cubes → aligned CT+MRI mesh, overlay-verified.
-
-**Upgrade recommendation — this is the highest-value change in the whole plan:**
-
-Replace plain `skimage.measure.marching_cubes` (run per-structure) with **`vtkSurfaceNets3D`**, run once across the full multi-label mask (bone + cartilage labels together).
-
-Why this matters concretely for your project: marching cubes evaluates each label independently, which means the femur mesh and the cartilage mesh will have **non-coincident, sometimes intersecting triangles** exactly where they touch — the articular surface, which is the single most clinically important region for implant sizing in Section 10. Surface Nets is built for labeled volumes specifically to guarantee shared, non-intersecting boundaries between adjacent tissues. This directly serves the spec's own "overlay check" requirement — a Surface Nets mesh will pass that visual alignment check more reliably than stitched-together marching-cubes outputs.
-
-```python
-# vtk pipeline sketch
-import vtk
-reader = vtk.vtkNIFTIImageReader()
-reader.SetFileName("multilabel_mask.nii.gz")
-reader.Update()
-
-surfacenets = vtk.vtkSurfaceNets3D()
-surfacenets.SetInputConnection(reader.GetOutputPort())
-surfacenets.SetLabels(0, 1)  # femur
-surfacenets.SetLabels(1, 2)  # tibia
-surfacenets.SetLabels(2, 3)  # cartilage
-surfacenets.Update()
-```
-
-**Smoothing:** the spec doesn't mention smoothing explicitly, but raw voxel meshes (from either algorithm) are stair-stepped. Do **not** use default Laplacian smoothing — it shrinks volume with every iteration, which will silently corrupt the implant-sizing measurements in Week 6. Use **Taubin smoothing** instead (`pyvista`'s `smooth_taubin()`, tunable `pass_band`), which alternates a shrink and an expand pass per iteration to remove high-frequency jaggedness while preserving the low-frequency volume/shape. This is a two-line swap:
-```python
-mesh_smoothed = mesh.smooth_taubin(n_iter=20, pass_band=0.1)
-```
-
-**Registration:** run CT–MRI rigid/affine registration exactly as the spec requires (Section 9) — the research doesn't suggest a change here; SimpleITK's registration module is standard and appropriate. The spec is right that this step is commonly skipped and is a real source of silent error; don't cut it even if the timeline is tight.
-
-**Decimation:** the spec's instruction to validate measurements pre/post-decimation still holds. Do this check on the Taubin-smoothed mesh, since smoothing changes vertex positions slightly and you want the final validated numbers to reflect the mesh that actually ships to AR.
-
----
-
-## Week 6 — Clinical Measurements
-
-**Build as specified** — mechanical axis angle, joint space width, implant sizing (AP/ML), with error margin reported vs. ground truth in `measurement_validation.csv`.
-
-**No architectural change needed here**, but note for the pitch deck: research-grade radiograph-to-3D systems (e.g., BoneVision) report sub-millimeter RMSE (~0.9–1.0mm) against CT ground truth for femur/tibia — useful as an external benchmark to frame your own error-margin numbers against when presenting results, even though your pipeline is CT/MRI-based rather than X-ray-based.
-
----
-
-## Week 7–8 — AR Visualization
-
-**Build exactly as specified** — Unity + ARFoundation (or WebXR fallback), semi-transparent soft tissue / opaque bone materials, marker-based scale calibration, slice plane, measurement tool, annotation, color-coded risk zones.
-
-No research-driven changes apply here — this is an engineering/integration week, not a modeling-accuracy week. One practical note: import the Taubin-smoothed, decimated mesh (not the raw Surface Nets output) — Unity/WebXR performance depends on the ~100K polygon budget the spec already specifies.
-
----
-
-## Week 9 — Demo Packaging
-
-**Build as specified.** For the pitch deck's accuracy table (Structure | Dice | Hausdorff | N cases), consider adding a short callout row noting *which* segmentation approach was used per structure (threshold vs. pre-trained U-Net vs. Swin UNETR) — it's a natural way to show engineering judgment (right tool per structure) rather than one-size-fits-all deep learning.
-
----
-
-## Summary of Deviations from the Spec
-
-| Spec item | Plan | Reason |
+### A.4 Cartilage Landmark Feature Vector (9-dim)
+| # | Feature | Computation |
 |---|---|---|
-| Section 3, MRI segmentation | Consider Swin UNETR via MONAI if pre-trained U-Net underperforms the 0.75–0.85 cartilage target | Cartilage needs long-range context CNNs don't capture well |
-| Section 9, mesh generation | Use `vtkSurfaceNets3D` on the combined multi-label mask instead of per-structure marching cubes | Prevents intersecting/non-coincident triangles at bone–cartilage boundaries |
-| Section 9, mesh cleanup | Add Taubin smoothing (`pyvista.smooth_taubin`) before decimation; avoid plain Laplacian | Laplacian shrinks volume every iteration, corrupting implant-sizing measurements |
-| Section 6, ground truth | Prefer OAI-ZIB/SKI10 pre-annotated masks over manual tracing where cases overlap those datasets | Saves manual annotation time within the 9-week window |
+| 1 | Femoral cartilage volume (cm³) | `sum(fc_mask) * vox_vol` |
+| 2 | Femoral cartilage mean thickness (mm) | `volume / (surface_area / 2)` |
+| 3 | Femoral contact area ML-extent (mm) | bbox X-width of `fc_mask>0`, physical coords |
+| 4 | Medial tibial cartilage volume (cm³) | same method |
+| 5 | Medial tibial cartilage mean thickness (mm) | same method |
+| 6 | Lateral tibial cartilage volume (cm³) | same method |
+| 7 | Lateral tibial cartilage mean thickness (mm) | same method |
+| 8 | JSW — medial (mm) | existing `get_jsw.py`, medial compartment |
+| 9 | JSW — lateral (mm) | existing `get_jsw.py`, lateral compartment |
 
-Everything else in the spec (architecture, repo layout, milestones, thresholds, AR requirements, deliverables checklist) holds as written — the changes above are targeted swaps at exactly the three points where the research report shows the "obvious" approach has a known failure mode.
+All z-scored before regression; save the scaler.
+
+### A.5 Inference Interface
+```python
+# src/synthesis/bone_from_mri.py
+def synthesize_bone(cart_mask_path: str, bone: str = 'femur') -> pv.PolyData:
+    """
+    Args:
+        cart_mask_path: CartiMorph output .nii.gz (0.5mm isotropic)
+        bone: 'femur' or 'tibia'
+    Returns:
+        pv.PolyData synthetic bone mesh, physical (LPS) coords.
+        Drop-in input to the existing vtkSurfaceNets3D meshing step.
+    Raises:
+        ReconstructionQAError: if Mahalanobis distance > 3.0σ (A.6)
+    """
+    features = extract_cart_features(cart_mask_path)
+    features_scaled = scaler.transform(features.reshape(1, -1))
+    coeffs = regressor.predict(features_scaled)
+    flat_verts = pca_model.mean_ + coeffs @ pca_model.components_
+    return flat_to_mesh(flat_verts.squeeze(), template_mesh)
+```
+
+### A.6 Inference QA Gate
+Reject and flag (don't silently extrapolate) if Mahalanobis distance of predicted coefficients exceeds 3σ from the training distribution:
+```
+Synthetic bone rejected: Mahalanobis distance = {d:.2f} (threshold 3.0σ).
+Patient anatomy is outside the training cohort range — flag for manual review.
+```
+
+### A.7 Minimum Viable Case Count — revised
+| Condition | Cases needed | Status |
+|---|---|---|
+| SSM/PCA training | 3 minimum, more is better | ⚠️ Have 3 confirmed (DU02, DU03, DU06) |
+| Reliable LOO-CV | ~5+ | ❌ Not yet met — treat current LOO-CV numbers as directional, not a validated bound |
+| Learned MRI→bone network | ~30–50 paired cases | ❌ Not in scope |
+
+**Action before Track 2 starts:** DU07 classification is complete (excluded due to CT segmentation failure). Training set is 3. Document the LOO-CV caveat in the model card rather than presenting it as equivalent to the 7-case estimate from the earlier draft.
+
+### A.8 Artifact Locations
+```
+src/synthesis/
+    bone_from_mri.py
+    train_ssm.py
+    extract_cart_features.py
+    MODEL_CARD.md          # method rationale, QA thresholds, N=3/4 caveat
+models/ssm/
+    pca_model_femur.pkl
+    pca_model_tibia.pkl
+    shape_regressor_femur.pkl
+    shape_regressor_tibia.pkl
+    cart_feature_scaler.pkl
+    template_femur.obj
+    template_tibia.obj
+# KneeTwin Implementation Plan v2 — MRI-Only Pipeline
+
+**Supersedes:** the 9-week CT+MRI dual-track plan.
+**Core change:** per-patient CT is dropped. Bone is synthesized from MRI cartilage geometry, using a shape model trained once, offline, on your existing paired CT+MRI cases.
+
+Status tags used throughout:
+- ✅ **Done** — already built and working, per current pipeline state. Reuse as-is.
+- ⚠️ **Done but needs rewiring** — code exists but assumes the old CT-per-case flow; needs to be repointed.
+- 🔲 **Not built** — net-new work for this plan.
+- ❌ **Cut** — remove from the pipeline entirely; do not port forward.
 
 ---
 
-## Open Questions Carried Forward (from spec Section 13)
-- Demo narrative pathology (e.g., TKA candidate) — needed before Week 6 measurement framing.
-- MATLAB licensing — plan above assumes Python-only; confirm before Week 3.
-- Target AR hardware (phone/Quest/HoloLens) — needed before Week 7 to pick ARFoundation vs. WebXR.
-- Ground-truth availability per case — determines how much Week 1 time goes to manual tracing vs. using OAI-ZIB masks directly.
+## 0. Decisions Locked
+
+| Decision | Detail |
+|---|---|
+| Per-case modality | MRI only. No CT ingestion, no CT-MRI registration, at inference time. |
+| Bone generation | Synthetic — Statistical Shape Model (PCA), conditioned on MRI-measured cartilage landmarks. Not a learned network (insufficient paired data). |
+| Role of CT | Training data only, consumed once, offline, to build the shape model. Never touched again per-case. |
+| Meshing | Single unified multi-label `vtkSurfaceNets3D` pass across cartilage + synthesized bone labels, Taubin-smoothed. |
+| Pitch framing | "MRI-only surgical planning — cartilage measured directly, bone synthesized and scaled to it, no radiation, single scan, single visit." |
+
+**⚠️ Offline training dataset:** of the 7 paired CT-MRI cases, only DU02, DU03, and DU06 have confirmed valid registration. DU01 is a post-surgical TKA case (excluded — non-representative anatomy), DU04/DU05 are missing CT (excluded — no pair to train on), and DU07 failed due to input segmentation failure (TotalSegmentator missed the femur due to cropped FOV). **Effective usable training set is 3 cases**. Section A.7 below reflects this.
+
+---
+
+## Track 1 — Per-Case Pipeline (production, runs on every new patient, MRI only)
+
+### Step 1 — MRI Ingestion & Cartilage/Bone-Region Segmentation
+- ✅ CartiMorph segmentation — label semantics confirmed (`Background=0, Femur=1, Femoral Cartilage=2, Tibia=3, MTiC=4, LTiC=5`)
+- ✅ RAI reorientation fix — required for CartiMorph to segment correctly, already applied
+- ✅ Segmentation collapse gate — QA safeguard against CartiMorph failure modes
+- 🔲 ACL/PCL/meniscus segmentation — CartiMorph doesn't cover these; still needs the pre-trained U-Net / Swin UNETR track from the original spec (Section 3). Not started.
+- ❌ Any CT ingestion, N4-skip / HU-threshold preprocessing for CT — remove Track B entirely from the per-case path.
+
+### Step 2 — Bone Synthesis (replaces CT bone segmentation)
+- 🔲 `synthesize_bone()` call into the per-case pipeline — **blocked on Track 2 (offline training) completing first.** This is the single largest gap between the current pipeline and this plan.
+- Inference QA gate (Mahalanobis distance vs. training distribution, reject + flag if >3σ) — 🔲 not built, spec'd in A.6.
+
+### Step 3 — Unified Meshing
+- ✅ Migrated to unified multi-label `vtkSurfaceNets3D` meshing (already replaces old per-label marching-cubes approach that caused joint-boundary overlaps)
+- ✅ 1-voxel-gap smoothing bulge bug fixed
+- ⚠️ Needs rewiring: currently meshes cartilage + CT-derived bone labels together; repoint to mesh cartilage + **synthesized** bone labels together once Step 2 exists. No change to the meshing code itself, only its inputs.
+- 🔲 Confirm Taubin smoothing (vs. default Laplacian) is applied post-mesh — carry forward from original spec if not already in the current pipeline; Laplacian will corrupt implant-sizing measurements.
+
+### Step 4 — Measurements
+- ✅ JSW metric (ROI-cropped boundary erosion + cKDTree, anisotropic surface projection, ~9.6s/side) — valid on the MRI track, keep as-is
+- ❌ CT-track JSW — already disabled (correctly; CT can't image cartilage), no action needed
+- ✅ Fabricated cartilage metric removed
+- ✅ Tibia AP depth fix (10%/30mm ROI + 2D PCA axis recovery, replacing full-shaft measurement)
+- ✅ Bilateral knee support (laterality-aware label maps, centroid-distance splitting) — carries forward unchanged, MRI-only doesn't affect this
+
+### Step 5 — Reporting & AR
+- ✅ FastAPI backend with modality auto-detection and background task processing — ⚠️ modality auto-detection can be simplified/removed since only MRI is accepted per-case now; decide whether to keep as a validation guard (reject CT uploads with a clear message) or strip it
+- ✅ Three.js 3D viewer (three-column layout: original scan, left knee, right knee)
+- ✅ Batch QA system (`batch_qa_report.py`) with quarantine logging and clinical PDF warnings
+- ✅ Caching architecture (SHA-256 hash + `PIPELINE_VERSION` as cache key)
+- ✅ PDF clinical report pipeline via ReportLab
+
+### Cut from the per-case path entirely
+- ❌ CT ingestion (Track B from original Week 1)
+- ❌ CT bone segmentation via TotalSegmentator, per-case
+- ❌ CT-MRI rigid/affine registration (original Week 5)
+- ❌ Metal streak artifact check, HU-threshold QA gate — these were CT-specific
+
+---
+
+## Track 2 — Offline Bone-Shape-Model Training (one-time, run before Track 1 Step 2 works)
+
+This is new work. Nothing here has been built yet, but two pieces of existing infrastructure carry over directly:
+- ✅ GPU-accelerated TotalSegmentator inference (RTX 4050, CUDA 12.1, ~4 min/case) — use this to produce the bone meshes for the 3 training cases.
+- ✅ `vtkSurfaceNets3D` unified meshing — reuse for producing clean bone mesh surfaces from the training CT labels before correspondence/PCA.
+
+### A.1 Component Summary
+Produces a PCA shape space over bone meshes plus a ridge regressor mapping MRI-measured cartilage landmarks → shape coefficients. At inference, `synthesize_bone()` predicts coefficients from a new patient's cartilage mask and deforms the mean bone shape accordingly.
+
+### A.2 Inputs
+| Input | Source | Notes |
+|---|---|---|
+| CT bone meshes (training) | DU02, DU03, DU06 | Generate via existing TotalSegmentator + vtkSurfaceNets3D pipeline |
+| MRI cartilage segmentation (training + inference) | CartiMorph output, resampled to 0.5mm isotropic | Labels: femoral cartilage, MTiC, LTiC |
+| Cartilage landmark vector (training + inference) | Extracted from cartilage mask, see A.4 | 9-dim per-case feature vector |
+
+### A.3 Training Procedure
+**Step 1 — Mesh correspondence.** Register all training bone meshes into point-to-point correspondence via non-rigid ICP (e.g. `probreg` CPD) against a single reference case. 🔲 not built.
+
+**Step 2 — PCA shape space.** Stack aligned vertex matrices, fit PCA. With only 3 cases, expect at most 2 usable components — retain components explaining ≥95% variance and check that number honestly once correspondence is done. 🔲 not built.
+
+**Step 3 — Landmark regressor.** Ridge regression from the 9-dim cartilage feature vector to PCA coefficients, fit on the same 3 cases. 🔲 not built.
+
+**QA gate (training):** LOO-CV mean-surface-distance ≤3.0mm (femur) / ≤2.5mm (tibia). With N=3, LOO-CV is a weak signal — flag this explicitly in the model card rather than presenting it as a validated error bound.
+
+### A.4 Cartilage Landmark Feature Vector (9-dim)
+| # | Feature | Computation |
+|---|---|---|
+| 1 | Femoral cartilage volume (cm³) | `sum(fc_mask) * vox_vol` |
+| 2 | Femoral cartilage mean thickness (mm) | `volume / (surface_area / 2)` |
+| 3 | Femoral contact area ML-extent (mm) | bbox X-width of `fc_mask>0`, physical coords |
+| 4 | Medial tibial cartilage volume (cm³) | same method |
+| 5 | Medial tibial cartilage mean thickness (mm) | same method |
+| 6 | Lateral tibial cartilage volume (cm³) | same method |
+| 7 | Lateral tibial cartilage mean thickness (mm) | same method |
+| 8 | JSW — medial (mm) | existing `get_jsw.py`, medial compartment |
+| 9 | JSW — lateral (mm) | existing `get_jsw.py`, lateral compartment |
+
+All z-scored before regression; save the scaler.
+
+### A.5 Inference Interface
+```python
+# src/synthesis/bone_from_mri.py
+def synthesize_bone(cart_mask_path: str, bone: str = 'femur') -> pv.PolyData:
+    """
+    Args:
+        cart_mask_path: CartiMorph output .nii.gz (0.5mm isotropic)
+        bone: 'femur' or 'tibia'
+    Returns:
+        pv.PolyData synthetic bone mesh, physical (LPS) coords.
+        Drop-in input to the existing vtkSurfaceNets3D meshing step.
+    Raises:
+        ReconstructionQAError: if Mahalanobis distance > 3.0σ (A.6)
+    """
+    features = extract_cart_features(cart_mask_path)
+    features_scaled = scaler.transform(features.reshape(1, -1))
+    coeffs = regressor.predict(features_scaled)
+    flat_verts = pca_model.mean_ + coeffs @ pca_model.components_
+    return flat_to_mesh(flat_verts.squeeze(), template_mesh)
+```
+
+### A.6 Inference QA Gate
+Reject and flag (don't silently extrapolate) if Mahalanobis distance of predicted coefficients exceeds 3σ from the training distribution:
+```
+Synthetic bone rejected: Mahalanobis distance = {d:.2f} (threshold 3.0σ).
+Patient anatomy is outside the training cohort range — flag for manual review.
+```
+
+### A.7 Minimum Viable Case Count — revised
+| Condition | Cases needed | Status |
+|---|---|---|
+| SSM/PCA training | 3 minimum, more is better | ✅ Have 3 confirmed (DU02, DU03, DU06) |
+| Reliable LOO-CV | ~5+ | ❌ Not yet met — treat current LOO-CV numbers as directional, not a validated bound |
+| Learned MRI→bone network | ~30–50 paired cases | ❌ Not in scope |
+
+**Action before Track 2 starts:** DU07 classification is complete (excluded due to CT segmentation failure). Training set is 3. Document the LOO-CV caveat in the model card rather than presenting it as equivalent to the 7-case estimate from the earlier draft.
+
+### A.8 Artifact Locations
+```
+src/synthesis/
+    bone_from_mri.py
+    train_ssm.py
+    extract_cart_features.py
+    MODEL_CARD.md          # method rationale, QA thresholds, N=3 caveat
+models/ssm/
+    pca_model_femur.pkl
+    pca_model_tibia.pkl
+    shape_regressor_femur.pkl
+    shape_regressor_tibia.pkl
+    cart_feature_scaler.pkl
+    template_femur.obj
+    template_tibia.obj
+```
+
+---
+
+## What Antigravity Should Actually Build Next, In Order
+
+1. Implement `src/synthesis/train_ssm.py` to handle mesh correspondence (via `probreg`) and PCA fitting.
+2. Implement `src/synthesis/bone_from_mri.py`.
+3. `synthesize_bone()` + Mahalanobis QA gate (A.5, A.6).
+4. Rewire Track 1 Step 3 (unified meshing) to consume synthesized bone instead of CT-derived bone.
+5. Strip/guard the CT path out of the FastAPI ingestion and modality auto-detection.
+6. Re-run the batch QA system end-to-end on a held-out MRI-only case to confirm the full chain works without any CT touching the per-case path.
+7. Only after that: revisit ACL/PCL/meniscus segmentation (Step 1, still not started).

@@ -1,8 +1,9 @@
 class KneeViewport {
-    constructor(containerId, side, taskId) {
+    constructor(containerId, side, taskId, modality) {
         this.container = document.getElementById(containerId);
         this.side = side;
         this.taskId = taskId;
+        this.modality = modality;
         this.container.innerHTML = '';
         
         this.scene = new THREE.Scene();
@@ -91,16 +92,23 @@ class KneeViewport {
         parts.forEach(part => {
             const meshUrl = `http://localhost:8000/api/mesh/${this.taskId}/${part.file}`;
             loader.load(meshUrl, (obj) => {
+                const isMRIBone = this.modality === 'MRI' && (part.file.includes('femur') || part.file.includes('tibia')) && !part.file.includes('cartilage');
+                
                 const material = new THREE.MeshStandardMaterial({
                     color: part.color,
                     roughness: 0.5,
                     metalness: 0.1,
-                    side: THREE.DoubleSide
+                    side: THREE.DoubleSide,
+                    transparent: isMRIBone,
+                    opacity: isMRIBone ? 0.25 : 1.0
                 });
                 
                 obj.traverse((child) => {
                     if (child.isMesh) {
                         child.material = material;
+                        if (isMRIBone) {
+                            child.userData.isMRIBone = true;
+                        }
                     }
                 });
                 
@@ -119,6 +127,15 @@ class KneeViewport {
                 }
             });
         });
+    }
+    
+    toggleBone() {
+        this.kneeGroup.traverse((child) => {
+            if (child.isMesh && child.userData.isMRIBone) {
+                child.visible = !child.visible;
+            }
+        });
+        this.renderer.render(this.scene, this.camera);
     }
 }
 
@@ -143,6 +160,9 @@ window.initViewer = async function(taskId) {
     document.getElementById("left-canvas-container").innerHTML = '';
     document.getElementById("right-canvas-container").innerHTML = '';
     
+    // Remove old toggles
+    document.querySelectorAll('.bone-toggle-btn').forEach(btn => btn.remove());
+    
     try {
         const manifestRes = await fetch(`http://localhost:8000/api/manifest/${taskId}`);
         if (!manifestRes.ok) throw new Error("Failed to load manifest");
@@ -158,8 +178,8 @@ window.initViewer = async function(taskId) {
             leftPanel.style.display = "flex";
             rightPanel.style.display = "flex";
             
-            const vpLeft = new KneeViewport("left-canvas-container", "left", taskId);
-            const vpRight = new KneeViewport("right-canvas-container", "right", taskId);
+            const vpLeft = new KneeViewport("left-canvas-container", "left", taskId, manifest.modality);
+            const vpRight = new KneeViewport("right-canvas-container", "right", taskId, manifest.modality);
             
             vpLeft.loadParts(leftParts);
             vpRight.loadParts(rightParts);
@@ -172,6 +192,22 @@ window.initViewer = async function(taskId) {
             document.getElementById("reset-left-btn").onclick = () => vpLeft.resetView();
             document.getElementById("reset-right-btn").onclick = () => vpRight.resetView();
             
+            if (manifest.modality === 'MRI') {
+                const btnLeft = document.createElement('button');
+                btnLeft.className = 'btn-secondary btn-sm bone-toggle-btn';
+                btnLeft.style.cssText = 'position: absolute; top: 1rem; left: 6rem; z-index: 10;';
+                btnLeft.innerText = 'Toggle Bone';
+                btnLeft.onclick = () => vpLeft.toggleBone();
+                leftPanel.appendChild(btnLeft);
+                
+                const btnRight = document.createElement('button');
+                btnRight.className = 'btn-secondary btn-sm bone-toggle-btn';
+                btnRight.style.cssText = 'position: absolute; top: 1rem; left: 6rem; z-index: 10;';
+                btnRight.innerText = 'Toggle Bone';
+                btnRight.onclick = () => vpRight.toggleBone();
+                rightPanel.appendChild(btnRight);
+            }
+            
         } else {
             // Unilateral
             dashboardSection.classList.remove("bilateral");
@@ -179,9 +215,18 @@ window.initViewer = async function(taskId) {
             leftPanel.style.display = "none";
             rightPanel.style.display = "none";
             
-            const vp = new KneeViewport("canvas-container", "single", taskId);
+            const vp = new KneeViewport("canvas-container", "single", taskId, manifest.modality);
             vp.loadParts(manifest.parts);
             vp.startAnimation();
+            
+            if (manifest.modality === 'MRI') {
+                const btn = document.createElement('button');
+                btn.className = 'btn-secondary btn-sm bone-toggle-btn';
+                btn.style.cssText = 'position: absolute; top: 1rem; left: 1rem; z-index: 10;';
+                btn.innerText = 'Toggle Bone';
+                btn.onclick = () => vp.toggleBone();
+                singlePanel.appendChild(btn);
+            }
             
             window.activeViewports.push(vp);
         }

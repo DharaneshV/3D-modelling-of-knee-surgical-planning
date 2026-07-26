@@ -15,7 +15,7 @@ def run_mri_segmentation(input_path: str, output_path: str):
     output_path = Path(output_path).resolve()
     
     # 1. Setup temp IO directories
-    temp_dir = Path("temp_mri_inference")
+    temp_dir = Path(f"temp_mri_inference_{input_path.stem.replace('.nii', '')}")
     input_dir = temp_dir / "input"
     output_dir = temp_dir / "output"
     
@@ -32,8 +32,12 @@ def run_mri_segmentation(input_path: str, output_path: str):
     case_id = input_path.name.split('.')[0].replace('_0000', '')
     temp_in_file = input_dir / f"{case_id}_0000.nii.gz"
     
-    import shutil
-    shutil.copy(input_path, temp_in_file)
+    # CartiMorph expects RAI orientation. Standardize it here.
+    img = sitk.ReadImage(str(input_path))
+    orient_filter = sitk.DICOMOrientImageFilter()
+    orient_filter.SetDesiredCoordinateOrientation("RAI")
+    rai_img = orient_filter.Execute(img)
+    sitk.WriteImage(rai_img, str(temp_in_file))
     
     # 2. Write WSL script
     wsl_script = temp_dir / "run_inference.py"
@@ -73,7 +77,7 @@ predict_from_folder(
     # Run the script in WSL
     print("Running CartiMorph inference in WSL...")
     # use relative path for WSL execution
-    rel_wsl_script = "temp_mri_inference/run_inference.py"
+    rel_wsl_script = f"{temp_dir.name}/run_inference.py"
     cmd = ["wsl", "-e", "bash", "-c", f"source ~/cartimorph_venv/bin/activate && python3 {rel_wsl_script}"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
