@@ -187,7 +187,8 @@ def cut_surface_dimensions(resected: trimesh.Trimesh, normal: np.ndarray,
             aligned = on_plane
 
     if not np.any(aligned):
-        return {"ml_mm": 0.0, "ap_mm": 0.0, "area_mm2": 0.0, "found": False}
+        return {"ml_mm": 0.0, "ap_mm": 0.0, "area_mm2": 0.0,
+                "centroid": None, "found": False}
 
     verts = resected.vertices[np.unique(resected.faces[aligned])]
     area = float(resected.area_faces[aligned].sum())
@@ -198,10 +199,17 @@ def cut_surface_dimensions(resected: trimesh.Trimesh, normal: np.ndarray,
     ap /= np.linalg.norm(ap)
     ml = np.cross(ap, normal)
 
+    # Area-weighted centre of the cut face, which is where an implant seats.
+    # Weighted rather than a plain vertex mean so a densely tessellated corner
+    # does not drag the seating point off-centre.
+    centroid = (resected.triangles_center[aligned]
+                * resected.area_faces[aligned][:, None]).sum(axis=0) / area
+
     return {
         "ml_mm": round(float(np.ptp(verts @ ml)), 1),
         "ap_mm": round(float(np.ptp(verts @ ap)), 1),
         "area_mm2": round(area, 1),
+        "centroid": [round(float(c), 3) for c in centroid],
         "found": True,
     }
 
