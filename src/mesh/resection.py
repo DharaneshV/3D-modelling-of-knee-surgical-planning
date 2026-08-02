@@ -119,6 +119,76 @@ def normalize_winding(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     return fixed
 
 
+def femoral_box_planes(mesh: trimesh.Trimesh, axis: np.ndarray, box: dict,
+                       distal_depth_mm: float = DEFAULT_FEMUR_DEPTH_MM,
+                       posterior: np.ndarray = None) -> list:
+    """
+    The five planes of a standard femoral box preparation.
+
+    A femoral component does not seat on a single flat cut. It caps the distal
+    femur across five surfaces — distal, posterior, anterior, and a chamfer
+    joining each of those to the distal — and the box dimensions come from the
+    chosen component size, since the cuts are made to fit the implant rather
+    than measured freely.
+
+    `box` supplies the internal dimensions: anterior_mm and posterior_mm from
+    the femoral axis, chamfer_mm, and the cut heights.
+
+    Returns [(origin, normal), ...] with each normal pointing at the fragment
+    that cut removes, matching resection_plane's convention.
+    """
+    axis = axis / np.linalg.norm(axis)
+    ml = np.array([1.0, 0.0, 0.0])
+    ap = np.cross(axis, ml)
+    ap /= np.linalg.norm(ap)
+
+    # LPS +Y is posterior; make `ap` point anteriorly so the box is unambiguous.
+    if posterior is None:
+        posterior = np.array([0.0, 1.0, 0.0])
+    anterior = -posterior
+    if ap @ anterior < 0:
+        ap = -ap
+
+    verts = mesh.vertices
+    distal_level = (verts @ axis).min() + distal_depth_mm
+    # Reference the AP cuts to the bone so the box lands on the condyles rather
+    # than at an arbitrary distance from the world origin.
+    ap_proj = verts @ ap
+    anterior_face = ap_proj.max() - box["anterior_inset_mm"]
+    posterior_face = ap_proj.min() + box["posterior_inset_mm"]
+
+    c = box["chamfer_mm"]
+    planes = [
+        # distal cut — removes everything below it
+        (axis * distal_level, -axis),
+        # posterior cut — removes the posterior condyles behind it
+        (ap * posterior_face, -ap),
+        # anterior cut — trims the anterior cortex
+        (ap * anterior_face, ap),
+    ]
+
+    # Chamfers at 45 degrees, offset so they meet the distal and AP cuts.
+    post_normal = -(axis + ap) / np.sqrt(2.0)
+    post_origin = axis * (distal_level + c) + ap * (posterior_face + c)
+    planes.append((post_origin, post_normal))
+
+    ant_normal = -(axis - ap) / np.sqrt(2.0)
+    ant_origin = axis * (distal_level + c) + ap * (anterior_face - c)
+    planes.append((ant_origin, ant_normal))
+
+    return planes
+
+
+def resect_femoral_box(mesh: trimesh.Trimesh, planes: list) -> trimesh.Trimesh:
+    """Apply the five box cuts in turn, keeping the retained fragment each time."""
+    cut = mesh
+    for origin, normal in planes:
+        cut = resect(cut, np.asarray(origin, dtype=float), np.asarray(normal, dtype=float))
+        if cut is None or len(cut.faces) == 0:
+            raise ValueError("Femoral box preparation removed the entire mesh")
+    return cut
+
+
 def ensure_watertight(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """
     Best-effort close of small defects so volume can be computed.

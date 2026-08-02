@@ -266,6 +266,223 @@ def place_tray(tray: trimesh.Trimesh, seat_point: np.ndarray,
     return placed
 
 
+# --------------------------------------------------------------------------
+# Femoral component
+# --------------------------------------------------------------------------
+
+# Femoral components are sized primarily on the anteroposterior dimension: too
+# large notches the anterior cortex, too small leaves the flexion gap loose.
+# Ranges here bracket the distal femora measured on this dataset (ML 70-87mm,
+# AP 55-64mm).
+FEMORAL_SIZES = [
+    {"size": 1, "ml_mm": 58.0, "ap_mm": 52.0},
+    {"size": 2, "ml_mm": 62.0, "ap_mm": 55.0},
+    {"size": 3, "ml_mm": 66.0, "ap_mm": 58.0},
+    {"size": 4, "ml_mm": 70.0, "ap_mm": 61.0},
+    {"size": 5, "ml_mm": 74.0, "ap_mm": 64.0},
+    {"size": 6, "ml_mm": 78.0, "ap_mm": 67.0},
+]
+
+FEMORAL_WALL_MM = 9.0          # distal and posterior thickness
+FEMORAL_CHAMFER_MM = 8.0
+FEMORAL_ANTERIOR_RISE_MM = 22.0   # how far the anterior flange runs proximally
+FEMORAL_POSTERIOR_RISE_MM = 20.0
+
+
+def femoral_box(size: dict) -> dict:
+    """Internal box dimensions the given component size requires."""
+    return {
+        "anterior_inset_mm": FEMORAL_WALL_MM * 0.55,   # flange is thinner than the condyles
+        "posterior_inset_mm": FEMORAL_WALL_MM,
+        "chamfer_mm": FEMORAL_CHAMFER_MM,
+        "anterior_rise_mm": FEMORAL_ANTERIOR_RISE_MM,
+        "posterior_rise_mm": FEMORAL_POSTERIOR_RISE_MM,
+    }
+
+
+def select_femoral_size(ap_mm: float, ml_mm: float, sizes: list = None) -> dict:
+    """
+    Largest component that does not exceed the femur's AP depth.
+
+    AP governs: an oversized component notches the anterior femoral cortex, a
+    stress riser associated with periprosthetic fracture, so AP is never
+    rounded up. ML is reported for reference and flagged if it overhangs.
+    """
+    sizes = sizes or FEMORAL_SIZES
+    fitting = [s for s in sizes if s["ap_mm"] <= ap_mm]
+    chosen = dict(max(fitting, key=lambda s: s["ap_mm"]) if fitting else sizes[0])
+    chosen["fit"] = "fitted" if fitting else "undersize"
+    chosen["ap_margin_mm"] = round(ap_mm - chosen["ap_mm"], 1)
+    chosen["ml_margin_mm"] = round(ml_mm - chosen["ml_mm"], 1)
+    chosen["ml_overhang"] = bool(chosen["ml_mm"] > ml_mm)
+    return chosen
+
+
+def _femoral_profile(size: dict, box: dict):
+    """
+    Sagittal cross-section of the component, in (anterior, proximal) mm with the
+    origin at the centre of the distal cut.
+
+    The inner boundary traces the five cut surfaces; the outer is that boundary
+    offset by the wall thickness, which rounds the distal-posterior corner into
+    the curved articular surface. This is a swept constant section — a real
+    component's condylar radius varies through flexion and it carries an
+    intercondylar notch, neither of which is modelled here.
+    """
+    from shapely.geometry import LineString, Polygon
+
+    # A quoted femoral size is the component's external anteroposterior
+    # dimension, so the bone box it seats on is inset by the wall thickness on
+    # each side. Getting this backwards would cut a box the size of the implant
+    # and leave the implant standing proud of the bone by its own thickness.
+    a = size["ap_mm"] / 2.0 - FEMORAL_WALL_MM
+    p = -a
+    c = box["chamfer_mm"]
+
+    # Open path along the cut surfaces, anterior top round to posterior top.
+    # Deliberately not closed: buffering a closed ring and subtracting leaves an
+    # annulus enclosing a hole, whereas the component is a C that opens
+    # proximally where there is no cut to seat against.
+    inner_path = [
+        (a, box["anterior_rise_mm"]),
+        (a, c),
+        (a - c, 0.0),
+        (p + c, 0.0),
+        (p, c),
+        (p, box["posterior_rise_mm"]),
+    ]
+
+    # Positive offset is to the left of travel, which along this path is away
+    # from the bone — the side the component's material occupies.
+    outer_path = LineString(inner_path).offset_curve(FEMORAL_WALL_MM,
+                                                     join_style=1, quad_segs=16)
+    outer = list(outer_path.coords)
+    # offset_curve does not guarantee direction; align it with the inner path so
+    # the two join end-to-end instead of crossing over themselves.
+    if np.linalg.norm(np.array(outer[0]) - np.array(inner_path[0])) > \
+       np.linalg.norm(np.array(outer[-1]) - np.array(inner_path[0])):
+        outer = outer[::-1]
+
+    shell = Polygon(inner_path + outer[::-1])
+    if not shell.is_valid:
+        shell = shell.buffer(0)
+    if shell.geom_type == "MultiPolygon":
+        shell = max(shell.geoms, key=lambda g: g.area)
+    return shell
+
+
+def build_femoral_component(size: dict) -> trimesh.Trimesh:
+    """
+    Component at the origin: sagittal shell swept across the mediolateral width,
+    with +Y anterior and +Z proximal, seating face on the distal cut at z = 0.
+    """
+    profile = _femoral_profile(size, femoral_box(size))
+    solid = trimesh.creation.extrude_polygon(profile, height=size["ml_mm"])
+
+    # extrude_polygon lays the profile in XY (x = anterior, y = proximal) and
+    # sweeps along +Z. Permute so the sweep becomes mediolateral and the profile
+    # stands in the sagittal plane: (x, y, z) -> (z, x, y).
+    permute = np.array([
+        [0.0, 0.0, 1.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ])
+    solid.apply_transform(permute)
+    solid.apply_translation([-solid.bounds[0][0] - size["ml_mm"] / 2.0, 0.0, 0.0])
+    return solid
+
+
+def place_femoral_component(component: trimesh.Trimesh, distal_centre: np.ndarray,
+                            proximal: np.ndarray, anterior: np.ndarray) -> trimesh.Trimesh:
+    """Map the canonical component onto the prepared femur."""
+    z = proximal / np.linalg.norm(proximal)
+    y = anterior - (anterior @ z) * z
+    y /= np.linalg.norm(y)
+    x = np.cross(y, z)
+
+    transform = np.eye(4)
+    transform[:3, 0] = x
+    transform[:3, 1] = y
+    transform[:3, 2] = z
+    transform[:3, 3] = distal_centre
+
+    placed = component.copy()
+    placed.apply_transform(transform)
+    return placed
+
+
+def fit_femoral_component(femur: trimesh.Trimesh, axis: np.ndarray,
+                          distal_depth_mm: float = 9.0,
+                          posterior: np.ndarray = None) -> dict:
+    """
+    Size a femoral component to the distal femur, cut the box it needs, and
+    place it.
+
+    Unlike the tibial tray, the bone preparation depends on the implant: the
+    five box cuts are made to fit the chosen component, so the size is selected
+    first and the cuts follow from it.
+
+    Returns the size, the placed component, and the prepared femur.
+    """
+    from src.mesh.resection import femoral_box_planes, normalize_winding, resect_femoral_box
+
+    # Same reason as plan_resection: meshes predating the topology repair carry
+    # inconsistent winding, which inflates every volume taken from them.
+    femur = normalize_winding(femur)
+
+    axis = np.asarray(axis, dtype=float)
+    axis = axis / np.linalg.norm(axis)
+    if posterior is None:
+        posterior = np.array([0.0, 1.0, 0.0])  # LPS +Y
+    anterior = -posterior
+
+    ml_axis = np.array([1.0, 0.0, 0.0])
+    ap_axis = np.cross(axis, ml_axis)
+    ap_axis /= np.linalg.norm(ap_axis)
+    if ap_axis @ anterior < 0:
+        ap_axis = -ap_axis
+    ml_axis = np.cross(ap_axis, axis)
+
+    # Measure over the condylar region the component caps, not the whole shaft.
+    proj = femur.vertices @ axis
+    distal = femur.vertices[proj <= proj.min() + 0.25 * np.ptp(proj)]
+    femur_ap = float(np.ptp(distal @ ap_axis))
+    femur_ml = float(np.ptp(distal @ ml_axis))
+
+    size = select_femoral_size(femur_ap, femur_ml)
+    planes = femoral_box_planes(femur, axis, femoral_box(size),
+                                distal_depth_mm=distal_depth_mm,
+                                posterior=posterior)
+    prepared = resect_femoral_box(femur, planes)
+
+    # Seat on the centre of the distal cut face.
+    distal_level = proj.min() + distal_depth_mm
+    on_distal = np.abs((prepared.triangles_center @ axis) - distal_level) <= 0.5
+    if np.any(on_distal):
+        area = prepared.area_faces[on_distal]
+        centre = (prepared.triangles_center[on_distal] * area[:, None]).sum(0) / area.sum()
+    else:
+        centre = prepared.vertices.mean(axis=0)
+
+    component = build_femoral_component(size)
+    placed = place_femoral_component(component, centre, axis, ap_axis)
+
+    return {
+        "size": size["size"],
+        "ml_mm": size["ml_mm"],
+        "ap_mm": size["ap_mm"],
+        "fit": size["fit"],
+        "ap_margin_mm": size["ap_margin_mm"],
+        "ml_margin_mm": size["ml_margin_mm"],
+        "ml_overhang": size["ml_overhang"],
+        "femur_ap_mm": round(femur_ap, 1),
+        "femur_ml_mm": round(femur_ml, 1),
+        "mesh": placed,
+        "prepared_femur": prepared,
+    }
+
+
 def fit_tibial_tray(resection: dict, bone_mesh: trimesh.Trimesh,
                     posterior: np.ndarray = None) -> dict:
     """

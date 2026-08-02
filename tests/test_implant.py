@@ -108,3 +108,56 @@ def test_placement_puts_plate_along_the_given_normal():
     assert height.min() == pytest.approx(-STEM_LENGTH_MM, abs=1e-6)
     # seating face lands on the seat point, not somewhere near it
     assert np.abs(height).min() == pytest.approx(0.0, abs=1e-6)
+
+
+# --------------------------------------------------------------------------
+# Femoral component
+# --------------------------------------------------------------------------
+
+from src.mesh.implant import (  # noqa: E402
+    FEMORAL_SIZES,
+    FEMORAL_WALL_MM,
+    build_femoral_component,
+    select_femoral_size,
+)
+
+
+@pytest.mark.parametrize("size", FEMORAL_SIZES, ids=lambda s: f"fem{s['size']}")
+def test_femoral_geometry_matches_nominal_size(size):
+    """A quoted femoral size is the component's external dimension. If the box
+    were cut to the nominal instead, the implant would stand proud of the bone
+    by its own wall thickness."""
+    comp = build_femoral_component(size)
+    extent = np.ptp(comp.vertices, axis=0)
+
+    assert extent[0] == pytest.approx(size["ml_mm"], abs=0.5)   # mediolateral
+    assert extent[1] == pytest.approx(size["ap_mm"], abs=0.5)   # anteroposterior
+
+
+@pytest.mark.parametrize("size", FEMORAL_SIZES, ids=lambda s: f"fem{s['size']}")
+def test_femoral_component_is_a_closed_shell(size):
+    comp = build_femoral_component(size)
+    assert comp.is_watertight
+    assert comp.volume > 0
+
+
+def test_femoral_component_extends_distal_to_the_cut():
+    """The component adds thickness below the distal cut; if it sat entirely
+    above z=0 the offset would have been applied into the bone."""
+    comp = build_femoral_component(FEMORAL_SIZES[2])
+    assert comp.bounds[0][2] == pytest.approx(-FEMORAL_WALL_MM, abs=0.5)
+    assert comp.bounds[1][2] > 0
+
+
+def test_femoral_sizing_never_rounds_ap_up():
+    """Oversizing in AP notches the anterior cortex, so AP is a hard ceiling."""
+    for ap in [52.0, 57.9, 61.0, 70.0]:
+        size = select_femoral_size(ap, 80.0)
+        if size["fit"] == "fitted":
+            assert size["ap_mm"] <= ap
+
+
+def test_femoral_sizing_flags_a_femur_smaller_than_every_size():
+    size = select_femoral_size(45.0, 50.0)
+    assert size["fit"] == "undersize"
+    assert size["ap_margin_mm"] < 0
