@@ -156,6 +156,42 @@ class KneeViewport {
     }
 
     /**
+     * Add a mesh that is not in the manifest — the implant, which is generated
+     * on demand rather than by the segmentation pipeline. Passing null for
+     * colour removes it again.
+     */
+    setExtraPart(file, color) {
+        const existing = this.partObjects[file];
+        if (!color) {
+            if (existing) {
+                this.kneeGroup.remove(existing);
+                delete this.partObjects[file];
+                this.renderer.render(this.scene, this.camera);
+            }
+            return;
+        }
+        if (existing) return;
+
+        new THREE.OBJLoader().load(
+            `http://localhost:8000/api/mesh/${this.taskId}/${file}`,
+            (obj) => {
+                // Low metalness on purpose. MeshStandardMaterial metals have no
+                // diffuse term, so without an environment map to reflect a highly
+                // metallic surface renders black under this scene's ambient +
+                // directional lights. Keep it dielectric and lean on roughness
+                // for the polished look instead.
+                const material = new THREE.MeshStandardMaterial({
+                    color: color, roughness: 0.35, metalness: 0.15,
+                    side: THREE.DoubleSide,
+                });
+                obj.traverse((c) => { if (c.isMesh) c.material = material; });
+                this.kneeGroup.add(obj);
+                this.partObjects[file] = obj;
+                this.renderer.render(this.scene, this.camera);
+            });
+    }
+
+    /**
      * Swap a loaded part for a different mesh file, reusing its material so the
      * resected bone keeps the colour and transparency of the intact one.
      * Passing null for replacementFile restores the original.

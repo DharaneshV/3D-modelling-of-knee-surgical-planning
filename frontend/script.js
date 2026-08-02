@@ -110,6 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
             vp.swapPart('femur_unknown.obj', show ? 'femur_resected.obj' : null);
             vp.swapPart('tibia_unknown.obj', show ? 'tibia_resected.obj' : null);
             vp.setBoneOpaque(show);
+            vp.setExtraPart('tibial_tray.obj', show ? '#c0c8d8' : null);
         });
 
         // Articular cartilage sits on the surfaces being cut, so a resection
@@ -156,8 +157,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     `<td>${r.cut_surface.ap_mm} mm</td><td>${removed}</td>`;
                 body.appendChild(tr);
             });
+            const imp = data.implant;
+            if (imp) {
+                const tr = document.createElement('tr');
+                const overhang = imp.max_overhang_mm != null
+                    ? `${imp.max_overhang_mm} mm overhang` : 'overhang n/a';
+                tr.innerHTML = `<td><strong>Tray size ${imp.size}</strong>` +
+                    `${imp.fit === 'fitted' ? '' : ' <em>(undersize)</em>'}</td>` +
+                    `<td>${imp.ml_mm} mm</td><td>${imp.ap_mm} mm</td>` +
+                    `<td>${imp.coverage_pct}% cover, ${overhang}</td>`;
+                body.appendChild(tr);
+            }
+
             document.getElementById('resection-caveat').textContent = data.axis_note +
-                ' Cut-surface dimensions are component sizing references only.';
+                ' Cut-surface dimensions are component sizing references only.' +
+                (imp ? ' ' + data.implant_note : '');
             document.getElementById('resection-results').style.display = 'block';
 
             showResected(true);

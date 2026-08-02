@@ -183,7 +183,7 @@ async def get_mesh(task_id: str, file_name: str):
     valid_files = [p["file"] for p in manifest.get("parts", [])]
     # Resection output is generated on demand by /api/resect, so it is not in the
     # manifest; allow the fixed set of names that endpoint writes.
-    valid_files += ["femur_resected.obj", "tibia_resected.obj"]
+    valid_files += ["femur_resected.obj", "tibia_resected.obj", "tibial_tray.obj"]
     if file_name not in valid_files:
         raise HTTPException(status_code=403, detail="File not in task manifest whitelist")
         
@@ -239,6 +239,7 @@ async def resect_bones(task_id: str,
     """
     import trimesh
     from src.mesh.resection import limb_axis, plan_resection
+    from src.mesh.implant import fit_tibial_tray
     from src.mesh.export_ar_glb import export_ar_glb_from_meshes
 
     task_dir = MESHES_DIR / task_id
@@ -271,13 +272,24 @@ async def resect_bones(task_id: str,
             cut_meshes[bone].export(str(task_dir / f"{bone}_resected.obj"))
             results[bone] = plan
 
+        # Fit a tibial tray to the cut. Failure here must not lose the resection,
+        # which is useful on its own, so it degrades to implant: None.
+        implant = None
+        ar_parts = {"femur_unknown": cut_meshes["femur"], "tibia_unknown": cut_meshes["tibia"]}
+        ar_colors = {"femur_unknown": "#e74c3c", "tibia_unknown": "#2ecc71"}
+        try:
+            fit = fit_tibial_tray(results["tibia"], cut_meshes["tibia"])
+            tray = fit.pop("mesh")
+            tray.export(str(task_dir / "tibial_tray.obj"))
+            ar_parts["tibial_tray"] = tray
+            ar_colors["tibial_tray"] = "#c0c8d8"
+            implant = fit
+        except Exception as e:
+            print(f"Tibial tray fitting failed for {task_id}: {e}")
+
         # AR-ready GLB of the resected state, same transform as the intact export.
         glb_name = f"{task_id}_resected_ar.glb"
-        export_ar_glb_from_meshes(
-            {"femur_unknown": cut_meshes["femur"], "tibia_unknown": cut_meshes["tibia"]},
-            str(task_dir / glb_name),
-            {"femur_unknown": "#e74c3c", "tibia_unknown": "#2ecc71"},
-        )
+        export_ar_glb_from_meshes(ar_parts, str(task_dir / glb_name), ar_colors)
 
         return {
             "task_id": task_id,
@@ -286,6 +298,10 @@ async def resect_bones(task_id: str,
                           "of view contains no hip or ankle centre, so this is not "
                           "a mechanical axis."),
             "resections": results,
+            "implant": implant,
+            "implant_note": ("Generic parametric component, not a specific commercial "
+                             "implant. Indicates that a tray of this size fits this "
+                             "resection; it is not a product selection."),
             "ar_glb": glb_name,
         }
     except ValueError as e:
