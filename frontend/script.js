@@ -334,6 +334,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     arBtn.style.display = 'none';
                 }
 
+                // The badge is hardcoded in the markup and otherwise only set
+                // during upload, so a cached or revisited task showed the wrong
+                // modality. The manifest is authoritative.
+                if (manifest.modality) {
+                    document.getElementById('modality-badge-dashboard').textContent =
+                        `${manifest.modality} Scan`;
+                }
+
                 // Resection planning is MRI-only — it targets the CartiMorph
                 // femur/tibia labels, which the CT track doesn't produce.
                 const hasMriBones = manifest.parts.some(p => p.file === 'femur_unknown.obj');

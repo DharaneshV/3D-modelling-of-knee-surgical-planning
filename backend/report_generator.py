@@ -12,6 +12,10 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
+# Run as a subprocess (`python backend/report_generator.py`), so sys.path[0] is
+# backend/, not the repo root. Needed for the src.mesh imports below.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 try:
     import SimpleITK as sitk
     HAS_SITK = True
@@ -116,6 +120,7 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
         "femur_ml": "N/A - Mesh data missing", "femur_ap": "N/A - Mesh data missing",
         "tibia_ml": "N/A - Mesh data missing", "tibia_ap": "N/A - Mesh data missing",
         "alignment_angle": "N/A - Mesh data missing",
+        "sizing_basis": "unavailable",
         "medial_thick": "2.2", "lateral_thick": "2.4", "trochlear_thick": "2.1" # Mocked/N/A for CT
     }
     
@@ -182,9 +187,32 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
             else:
                 metrics["alignment_angle"] = "N/A - Requires full-limb imaging"
             
-            # Sizing (Bounding Box spreads) via PCA on proportional ROI
-            metrics["femur_ml"], metrics["femur_ap"] = get_roi_sizing(femur.vertices, f_axis, is_femur=True, side=side)
-            metrics["tibia_ml"], metrics["tibia_ap"] = get_roi_sizing(tibia.vertices, t_axis, is_femur=False, side=side)
+            # Implant sizing is measured on the resection surface, matching how a
+            # component is sized surgically. Measuring at the joint surface
+            # instead reports the tibial intercondylar eminence rather than the
+            # plateau — 45.6mm ML against a true 83.7mm on a verified case.
+            # The limb axis is used (not the per-bone PCA axis) so these agree
+            # with /api/resect, which plans the same cuts.
+            try:
+                from src.mesh.resection import plan_resection
+                f_plan = plan_resection(femur, up_vector, "femur")
+                t_plan = plan_resection(tibia, up_vector, "tibia")
+                metrics["femur_ml"] = f_plan["cut_surface"]["ml_mm"]
+                metrics["femur_ap"] = f_plan["cut_surface"]["ap_mm"]
+                metrics["tibia_ml"] = t_plan["cut_surface"]["ml_mm"]
+                metrics["tibia_ap"] = t_plan["cut_surface"]["ap_mm"]
+                metrics["sizing_basis"] = (
+                    f"resection surface, {f_plan['depth_mm']:.0f}mm femoral / "
+                    f"{t_plan['depth_mm']:.0f}mm tibial"
+                )
+            except Exception as e:
+                # Loud, not silent: the fallback measures a different thing and
+                # the report must say so rather than quietly reporting it.
+                print(f"WARNING [{side}]: resection-level sizing failed ({e}); "
+                      f"falling back to joint-surface ROI")
+                metrics["femur_ml"], metrics["femur_ap"] = get_roi_sizing(femur.vertices, f_axis, is_femur=True, side=side)
+                metrics["tibia_ml"], metrics["tibia_ap"] = get_roi_sizing(tibia.vertices, t_axis, is_femur=False, side=side)
+                metrics["sizing_basis"] = "joint-surface ROI (fallback; under-reports tibial width)"
             
             # JSW Calculation
             metrics["jsw_overlap"] = False
@@ -318,12 +346,12 @@ def build_metrics_list(metrics, modality):
         {
             "name": "Femur ML Width / AP Depth",
             "value": f"{metrics['femur_ml']} mm / {metrics['femur_ap']} mm" if not isinstance(metrics['femur_ml'], str) else metrics['femur_ml'],
-            "caveat": "Implant sizing reference dimensions" if not isinstance(metrics['femur_ml'], str) else "Required mesh file missing"
+            "caveat": f"Implant sizing reference, measured at {metrics['sizing_basis']}" if not isinstance(metrics['femur_ml'], str) else "Required mesh file missing"
         },
         {
             "name": "Tibia ML Width / AP Depth",
             "value": f"{metrics['tibia_ml']} mm / {metrics['tibia_ap']} mm" if not isinstance(metrics['tibia_ml'], str) else metrics['tibia_ml'],
-            "caveat": "Implant sizing reference dimensions" if not isinstance(metrics['tibia_ml'], str) else "Required mesh file missing"
+            "caveat": f"Implant sizing reference, measured at {metrics['sizing_basis']}" if not isinstance(metrics['tibia_ml'], str) else "Required mesh file missing"
         },
         {
             "name": "Cartilage Thickness",
