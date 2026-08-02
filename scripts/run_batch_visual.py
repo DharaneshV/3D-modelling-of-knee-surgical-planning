@@ -1,8 +1,16 @@
 """
+DEPRECATED as of PIPELINE_VERSION v3.2.
+
+This script invokes src/synthesis/bone_from_mri.py (now archived) and reads
+visual_femur.obj / visual_tibia.obj — neither of which are produced by the
+updated pipeline. Bone is now meshed natively from CartiMorph labels 1/3 as
+femur_unknown.obj / tibia_unknown.obj. Use run_batch_qa_mri.py instead.
+
+--- Original docstring below ---
 Batch runner: for each OAIZIB case in labelsTs
   1. Run run_meshing.py to extract cartilage meshes (if not already done)
-  2. Run bone_from_mri.align_and_scale_bone for femur + tibia
-  3. Report femur/tibia bounding-box gap and clipping route
+  2. Run bone_from_mri.align_and_scale_bone for femur + tibia  [ARCHIVED]
+  3. Report femur/tibia bounding-box gap and clipping route     [ARCHIVED]
 
 Progress is written to batch_visual_run.jsonl so it can be resumed on crash.
 """
