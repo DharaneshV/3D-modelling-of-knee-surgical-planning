@@ -136,6 +136,52 @@ class KneeViewport {
         obj.visible = visible;
         this.renderer.render(this.scene, this.camera);
     }
+
+    /**
+     * MRI bone is drawn semi-transparent so cartilage reads through it. That
+     * hides the resection cut, so bone is made solid while a cut is displayed.
+     */
+    setBoneOpaque(opaque) {
+        ['femur_unknown.obj', 'tibia_unknown.obj'].forEach(file => {
+            const obj = this.partObjects[file];
+            if (!obj) return;
+            obj.traverse((c) => {
+                if (!c.isMesh) return;
+                c.material.transparent = !opaque;
+                c.material.opacity = opaque ? 1.0 : 0.25;
+                c.material.needsUpdate = true;
+            });
+        });
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    /**
+     * Swap a loaded part for a different mesh file, reusing its material so the
+     * resected bone keeps the colour and transparency of the intact one.
+     * Passing null for replacementFile restores the original.
+     */
+    swapPart(file, replacementFile) {
+        const existing = this.partObjects[file];
+        if (!existing) return;
+
+        const target = replacementFile || file;
+        if (existing.userData.showing === target) return;
+
+        const loader = new THREE.OBJLoader();
+        loader.load(`http://localhost:8000/api/mesh/${this.taskId}/${target}`, (obj) => {
+            let material = null;
+            existing.traverse((c) => { if (c.isMesh && !material) material = c.material; });
+
+            obj.traverse((c) => { if (c.isMesh && material) c.material = material; });
+            obj.visible = existing.visible;
+            obj.userData.showing = target;
+
+            this.kneeGroup.remove(existing);
+            this.kneeGroup.add(obj);
+            this.partObjects[file] = obj;
+            this.renderer.render(this.scene, this.camera);
+        });
+    }
 }
 
 // Per-part show/hide panel. Replaces the old all-or-nothing "Toggle Bone"

@@ -181,6 +181,9 @@ async def get_mesh(task_id: str, file_name: str):
         manifest = json.load(f)
         
     valid_files = [p["file"] for p in manifest.get("parts", [])]
+    # Resection output is generated on demand by /api/resect, so it is not in the
+    # manifest; allow the fixed set of names that endpoint writes.
+    valid_files += ["femur_resected.obj", "tibia_resected.obj"]
     if file_name not in valid_files:
         raise HTTPException(status_code=403, detail="File not in task manifest whitelist")
         
@@ -219,6 +222,76 @@ def _load_volume(task_id: str, file_path: str) -> sitk.Image:
         _volume_cache["task_id"] = task_id
         _volume_cache["image"] = sitk.ReadImage(file_path)
     return _volume_cache["image"]
+
+
+@app.get("/api/resect/{task_id}")
+async def resect_bones(task_id: str,
+                       femur_depth_mm: float = 9.0,
+                       tibia_depth_mm: float = 10.0,
+                       varus_deg: float = 0.0,
+                       slope_deg: float = 0.0):
+    """
+    Plan the distal-femoral and proximal-tibial resections for a task.
+
+    Writes the cut meshes alongside the originals and returns the measurements a
+    surgeon would size a component from. Only the MRI track is supported: the
+    label names below are CartiMorph's.
+    """
+    import trimesh
+    from src.mesh.resection import limb_axis, plan_resection
+    from src.mesh.export_ar_glb import export_ar_glb_from_meshes
+
+    task_dir = MESHES_DIR / task_id
+    femur_path = task_dir / "femur_unknown.obj"
+    tibia_path = task_dir / "tibia_unknown.obj"
+
+    if not femur_path.exists() or not tibia_path.exists():
+        raise HTTPException(status_code=404,
+                            detail="Femur and tibia meshes not found for this task")
+
+    if not (0 < femur_depth_mm < 40 and 0 < tibia_depth_mm < 40):
+        raise HTTPException(status_code=400,
+                            detail="Resection depth must be between 0 and 40 mm")
+    if abs(varus_deg) > 15 or abs(slope_deg) > 15:
+        raise HTTPException(status_code=400,
+                            detail="Angulation must be within +/-15 degrees")
+
+    try:
+        femur = trimesh.load_mesh(str(femur_path), process=False)
+        tibia = trimesh.load_mesh(str(tibia_path), process=False)
+        axis = limb_axis(femur.vertices, tibia.vertices)
+
+        results = {}
+        cut_meshes = {}
+        for bone, mesh, depth in (("femur", femur, femur_depth_mm),
+                                  ("tibia", tibia, tibia_depth_mm)):
+            plan = plan_resection(mesh, axis, bone, depth_mm=depth,
+                                  varus_deg=varus_deg, slope_deg=slope_deg)
+            cut_meshes[bone] = plan.pop("mesh")
+            cut_meshes[bone].export(str(task_dir / f"{bone}_resected.obj"))
+            results[bone] = plan
+
+        # AR-ready GLB of the resected state, same transform as the intact export.
+        glb_name = f"{task_id}_resected_ar.glb"
+        export_ar_glb_from_meshes(
+            {"femur_unknown": cut_meshes["femur"], "tibia_unknown": cut_meshes["tibia"]},
+            str(task_dir / glb_name),
+            {"femur_unknown": "#e74c3c", "tibia_unknown": "#2ecc71"},
+        )
+
+        return {
+            "task_id": task_id,
+            "limb_axis": [round(float(x), 4) for x in axis],
+            "axis_note": ("Limb-axis proxy from bone centroids. A knee-only field "
+                          "of view contains no hip or ankle centre, so this is not "
+                          "a mechanical axis."),
+            "resections": results,
+            "ar_glb": glb_name,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Resection failed: {str(e)}")
 
 
 @app.get("/api/volume-info/{task_id}")

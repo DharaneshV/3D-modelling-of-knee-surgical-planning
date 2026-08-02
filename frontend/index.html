@@ -169,6 +169,37 @@
                         <p id="r-impression" style="line-height: 1.6; color: var(--text-color); padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 8px;"></p>
                     </div>
                     
+                    <!-- Resection Planning -->
+                    <div id="resection-panel" style="display: none; margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;">
+                        <h4 style="margin-bottom: 0.75rem;">Resection Planning</h4>
+                        <div class="slider-group">
+                            <label>Distal femoral cut: <span id="femur-depth-label">9 mm</span></label>
+                            <input type="range" id="femur-depth-slider" min="4" max="20" step="1" value="9">
+                        </div>
+                        <div class="slider-group">
+                            <label>Proximal tibial cut: <span id="tibia-depth-label">10 mm</span></label>
+                            <input type="range" id="tibia-depth-slider" min="4" max="20" step="1" value="10">
+                        </div>
+                        <div class="slider-group">
+                            <label>Varus / valgus: <span id="varus-label">0°</span></label>
+                            <input type="range" id="varus-slider" min="-10" max="10" step="1" value="0">
+                        </div>
+                        <div class="slider-group">
+                            <label>Posterior slope: <span id="slope-label">0°</span></label>
+                            <input type="range" id="slope-slider" min="-10" max="10" step="1" value="0">
+                        </div>
+                        <button class="btn-primary" id="plan-resection-btn" style="width: 100%; margin-top: 0.5rem;">Plan Resection</button>
+                        <button class="btn-secondary btn-sm" id="restore-intact-btn" style="width: 100%; margin-top: 0.4rem; display: none;">Show Intact Bone</button>
+
+                        <div id="resection-results" style="display: none; margin-top: 0.75rem; font-size: 0.8rem;">
+                            <table class="report-table" style="width: 100%;">
+                                <thead><tr><th>Cut surface</th><th>ML</th><th>AP</th><th>Removed</th></tr></thead>
+                                <tbody id="resection-body"></tbody>
+                            </table>
+                            <p id="resection-caveat" class="text-muted" style="margin-top: 0.5rem; line-height: 1.4;"></p>
+                        </div>
+                    </div>
+
                     <div class="action-buttons" style="margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;">
                         <button class="btn-secondary" id="new-scan-btn" style="width: 100%;">Upload New Scan</button>
                     </div>

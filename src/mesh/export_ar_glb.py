@@ -19,28 +19,41 @@ def _hex_to_rgba(hex_color: str) -> np.ndarray:
     return np.array([r, g, b, 255], dtype=np.uint8)
 
 
-def export_ar_glb(output_dir: str, label_map: dict, label_colors: dict, base_name: str, track: str) -> str | None:
-    """Combine per-label OBJ parts into one colored, AR-ready GLB (mm/LPS -> m/Y-up)."""
+def export_ar_glb_from_meshes(meshes: dict, out_path: str, label_colors: dict) -> str | None:
+    """
+    Export already-loaded meshes as one colored, AR-ready GLB (mm/LPS -> m/Y-up).
+
+    `meshes` maps label name -> trimesh.Trimesh. Meshes are copied before the
+    transform is applied so the caller's geometry is left in pipeline coordinates.
+    """
     scene = trimesh.Scene()
-    found_any = False
 
-    for label_name in label_map.keys():
-        part_path = os.path.join(output_dir, f"{label_name}.obj")
-        if not os.path.exists(part_path):
-            continue
-
-        mesh = trimesh.load_mesh(part_path, process=False)
-        mesh.apply_transform(_TRANSFORM)
+    for label_name, mesh in meshes.items():
+        m = mesh.copy()
+        m.apply_transform(_TRANSFORM)
 
         color = _hex_to_rgba(label_colors.get(label_name, '#ffffff'))
-        mesh.visual.vertex_colors = np.tile(color, (len(mesh.vertices), 1))
+        m.visual.vertex_colors = np.tile(color, (len(m.vertices), 1))
 
-        scene.add_geometry(mesh, node_name=label_name)
-        found_any = True
+        scene.add_geometry(m, node_name=label_name)
 
-    if not found_any:
+    if not scene.geometry:
+        return None
+
+    scene.export(out_path)
+    return out_path
+
+
+def export_ar_glb(output_dir: str, label_map: dict, label_colors: dict, base_name: str, track: str) -> str | None:
+    """Combine per-label OBJ parts into one colored, AR-ready GLB (mm/LPS -> m/Y-up)."""
+    meshes = {}
+    for label_name in label_map.keys():
+        part_path = os.path.join(output_dir, f"{label_name}.obj")
+        if os.path.exists(part_path):
+            meshes[label_name] = trimesh.load_mesh(part_path, process=False)
+
+    if not meshes:
         return None
 
     glb_path = os.path.join(output_dir, f"{base_name}_{track}_ar.glb")
-    scene.export(glb_path)
-    return glb_path
+    return export_ar_glb_from_meshes(meshes, glb_path, label_colors)
