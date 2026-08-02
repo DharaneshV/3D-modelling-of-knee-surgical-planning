@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const newScanBtn = document.getElementById('new-scan-btn');
 
     let selectedFile = null;
+    // Task currently shown on the dashboard. Tracked here rather than reusing
+    // slice_viewer.js's currentTaskId so this file doesn't depend on load order.
+    let dashboardTaskId = null;
 
     // Prevent default drag behaviors
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -87,6 +90,89 @@ document.addEventListener('DOMContentLoaded', () => {
         arModal.style.display = 'none';
         arModelViewer.src = '';
     });
+
+    // --- Resection planning ---
+    const resectionSliders = {
+        'femur-depth-slider': ['femur-depth-label', v => `${v} mm`],
+        'tibia-depth-slider': ['tibia-depth-label', v => `${v} mm`],
+        'varus-slider': ['varus-label', v => `${v}°`],
+        'slope-slider': ['slope-label', v => `${v}°`],
+    };
+    Object.entries(resectionSliders).forEach(([sliderId, [labelId, fmt]]) => {
+        const el = document.getElementById(sliderId);
+        if (el) el.addEventListener('input', e => {
+            document.getElementById(labelId).textContent = fmt(e.target.value);
+        });
+    });
+
+    function showResected(show) {
+        window.activeViewports.forEach(vp => {
+            vp.swapPart('femur_unknown.obj', show ? 'femur_resected.obj' : null);
+            vp.swapPart('tibia_unknown.obj', show ? 'tibia_resected.obj' : null);
+            vp.setBoneOpaque(show);
+        });
+
+        // Articular cartilage sits on the surfaces being cut, so a resection
+        // takes it with the bone — leaving it on screen would misrepresent the
+        // result, and it also occludes the cut face. Driven through the part
+        // checkboxes so the panel stays in sync with what is displayed.
+        document.querySelectorAll('.part-controls label').forEach(row => {
+            const name = row.querySelector('span:last-child').textContent;
+            if (!name.includes('Cartilage')) return;
+            const cb = row.querySelector('input');
+            if (cb.checked === show) {
+                cb.checked = !show;
+                cb.dispatchEvent(new Event('change'));
+            }
+        });
+
+        document.getElementById('restore-intact-btn').style.display = show ? 'block' : 'none';
+    }
+
+    const planBtn = document.getElementById('plan-resection-btn');
+    if (planBtn) planBtn.addEventListener('click', async () => {
+        if (!dashboardTaskId) return;
+        planBtn.disabled = true;
+        planBtn.textContent = 'Planning...';
+        try {
+            const q = new URLSearchParams({
+                femur_depth_mm: document.getElementById('femur-depth-slider').value,
+                tibia_depth_mm: document.getElementById('tibia-depth-slider').value,
+                varus_deg: document.getElementById('varus-slider').value,
+                slope_deg: document.getElementById('slope-slider').value,
+            });
+            const res = await fetch(`${API_BASE}/resect/${dashboardTaskId}?${q}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Resection failed');
+
+            const body = document.getElementById('resection-body');
+            body.innerHTML = '';
+            Object.entries(data.resections).forEach(([bone, r]) => {
+                const removed = r.removed_volume_mm3
+                    ? `${(r.removed_volume_mm3 / 1000).toFixed(1)} cm³` : 'n/a';
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${bone} @ ${r.depth_mm}mm</td>` +
+                    `<td>${r.cut_surface.ml_mm} mm</td>` +
+                    `<td>${r.cut_surface.ap_mm} mm</td><td>${removed}</td>`;
+                body.appendChild(tr);
+            });
+            document.getElementById('resection-caveat').textContent = data.axis_note +
+                ' Cut-surface dimensions are component sizing references only.';
+            document.getElementById('resection-results').style.display = 'block';
+
+            showResected(true);
+        } catch (e) {
+            console.error('Resection failed', e);
+            document.getElementById('resection-caveat').textContent = `Resection failed: ${e.message}`;
+            document.getElementById('resection-results').style.display = 'block';
+        } finally {
+            planBtn.disabled = false;
+            planBtn.textContent = 'Plan Resection';
+        }
+    });
+
+    const restoreBtn = document.getElementById('restore-intact-btn');
+    if (restoreBtn) restoreBtn.addEventListener('click', () => showResected(false));
 
     cancelBtn.addEventListener('click', () => {
         processingOverlay.style.display = 'none';
@@ -199,7 +285,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadDashboard(taskId) {
         processingOverlay.style.display = 'none';
-        
+        dashboardTaskId = taskId;
+
         try {
             // Fetch Native Report Data
             const res = await fetch(`${API_BASE}/report/${taskId}/data`);
@@ -246,6 +333,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     arBtn.style.display = 'none';
                 }
+
+                // Resection planning is MRI-only — it targets the CartiMorph
+                // femur/tibia labels, which the CT track doesn't produce.
+                const hasMriBones = manifest.parts.some(p => p.file === 'femur_unknown.obj');
+                document.getElementById('resection-panel').style.display =
+                    hasMriBones ? 'block' : 'none';
             } catch (e) {
                 console.error("Failed to check AR availability", e);
                 arBtn.style.display = 'none';
