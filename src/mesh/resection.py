@@ -99,6 +99,26 @@ def resection_plane(mesh: trimesh.Trimesh, axis: np.ndarray, bone: str,
     return origin, discard
 
 
+def normalize_winding(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """
+    Make face winding consistent and outward-facing before any volume is taken.
+
+    Meshes generated before the topology repair landed (src/mesh/topology.py)
+    carry the per-label-pair winding inconsistency that vtkSurfaceNets3D
+    produces, which makes trimesh report volumes 1.4x-2.1x too large — a femur
+    measured at 325 cm3 against a true 156 cm3. Repaired meshes are already
+    consistent, so this is a no-op on them.
+
+    Index-only and idempotent: no vertex coordinate is created, moved or removed,
+    so the surfaces the cut and the sizing are measured from do not shift.
+    """
+    fixed = mesh.copy()
+    trimesh.repair.fix_winding(fixed)
+    if fixed.volume < 0:
+        fixed.invert()
+    return fixed
+
+
 def ensure_watertight(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """
     Best-effort close of small defects so volume can be computed.
@@ -198,7 +218,7 @@ def plan_resection(mesh: trimesh.Trimesh, axis: np.ndarray, bone: str,
     if depth_mm is None:
         depth_mm = DEFAULT_FEMUR_DEPTH_MM if bone == "femur" else DEFAULT_TIBIA_DEPTH_MM
 
-    mesh = ensure_watertight(mesh)
+    mesh = ensure_watertight(normalize_winding(mesh))
     origin, normal = resection_plane(mesh, axis, bone, depth_mm, varus_deg, slope_deg)
     resected = resect(mesh, origin, normal)
 
