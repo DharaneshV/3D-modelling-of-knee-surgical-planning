@@ -6,6 +6,7 @@ import uuid
 import json
 from pathlib import Path
 import glob
+import numpy as np
 import SimpleITK as sitk
 from fastapi.responses import Response, JSONResponse, FileResponse
 from backend.pipeline_runner import run_pipeline_async, get_status_path, update_status, check_cache, UPLOADS_DIR, MESHES_DIR, TASKS_DIR
@@ -208,29 +209,45 @@ async def get_ar_glb(task_id: str):
 
     return FileResponse(glb_path, media_type="model/gltf-binary")
 
+# Single decoded volume kept in memory so slice scrubbing doesn't re-read from
+# disk on every request. Shared by /api/volume-info and /api/slices.
+_volume_cache = {"task_id": None, "image": None}
+
+
+def _load_volume(task_id: str, file_path: str) -> sitk.Image:
+    if _volume_cache["task_id"] != task_id:
+        _volume_cache["task_id"] = task_id
+        _volume_cache["image"] = sitk.ReadImage(file_path)
+    return _volume_cache["image"]
+
+
 @app.get("/api/volume-info/{task_id}")
 async def get_volume_info(task_id: str):
     # Find the original scan file
     files = glob.glob(str(UPLOADS_DIR / f"{task_id}_*"))
     if not files:
         raise HTTPException(status_code=404, detail="Original scan not found for this task")
-        
+
     file_path = files[0]
-    
+
     try:
-        reader = sitk.ImageFileReader()
-        reader.SetFileName(file_path)
-        reader.ReadImageInformation()
-        size = reader.GetSize()
-        spacing = reader.GetSpacing()
-        
+        img = _load_volume(task_id, file_path)
+        size = img.GetSize()
+        spacing = img.GetSpacing()
+
         # Read status to get modality if possible
         modality = "UNKNOWN"
         status_path = get_status_path(task_id)
         if status_path.exists():
             with open(status_path, "r") as f:
                 modality = json.load(f).get("modality", "UNKNOWN")
-                
+
+        # Intensity range so the frontend can scale its window/level sliders to
+        # the data. MRI has no fixed scale like CT's Hounsfield units, so
+        # hard-coded HU slider bounds are meaningless on an MR volume.
+        arr = sitk.GetArrayViewFromImage(img)
+        p1, p99 = np.percentile(arr, (1.0, 99.0))
+
         return {
             "num_slices": {
                 "sagittal": size[0],
@@ -238,7 +255,13 @@ async def get_volume_info(task_id: str):
                 "axial": size[2]
             },
             "spacing": spacing,
-            "modality": modality
+            "modality": modality,
+            "intensity": {
+                "min": float(arr.min()),
+                "max": float(arr.max()),
+                "p1": float(p1),
+                "p99": float(p99),
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read volume info: {str(e)}")
@@ -255,16 +278,7 @@ async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: 
     file_path = files[0]
     
     try:
-        # Cache the volume in memory to avoid reading from disk on every slice request
-        global _volume_cache
-        if "_volume_cache" not in globals():
-            _volume_cache = {"task_id": None, "image": None}
-            
-        if _volume_cache["task_id"] != task_id:
-            _volume_cache["task_id"] = task_id
-            _volume_cache["image"] = sitk.ReadImage(file_path)
-            
-        img = _volume_cache["image"]
+        img = _load_volume(task_id, file_path)
         size = img.GetSize()
         
         # Bounds check
@@ -292,13 +306,19 @@ async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: 
             if modality == "CT":
                 wc, ww = 650, 1700 # bone window approx [-200, 1500]
             else:
-                # auto-window based on min/max of slice
-                stats = sitk.StatisticsImageFilter()
-                stats.Execute(slice_img)
-                min_v = stats.GetMinimum()
-                max_v = stats.GetMaximum()
-                ww = max_v - min_v
-                wc = min_v + ww / 2.0
+                # MRI has no standardised intensity scale, so the window is derived
+                # per-slice. Use percentiles, not min/max: a handful of hot voxels
+                # (fat, flow artifact) can sit an order of magnitude above the tissue
+                # range, and stretching the window to them crushes all the anatomy
+                # into the bottom few percent of the display range — the scan then
+                # renders almost black.
+                arr = sitk.GetArrayViewFromImage(slice_img).astype(float)
+                lo, hi = np.percentile(arr, (1.0, 99.0))
+                ww = float(hi - lo)
+                if ww <= 0:  # near-uniform slice (e.g. empty end-of-volume slice)
+                    lo, hi = float(arr.min()), float(arr.max())
+                    ww = max(hi - lo, 1.0)
+                wc = lo + ww / 2.0
                 
         # Apply window
         windowed = sitk.IntensityWindowing(slice_img, windowMinimum=wc - ww/2.0, windowMaximum=wc + ww/2.0, outputMinimum=0, outputMaximum=255)
