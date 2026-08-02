@@ -186,8 +186,28 @@ async def get_mesh(task_id: str, file_name: str):
     mesh_path = MESHES_DIR / task_id / file_name
     if not mesh_path.exists():
         raise HTTPException(status_code=404, detail="Mesh file not found")
-        
+
     return FileResponse(mesh_path)
+
+@app.get("/api/ar/{task_id}")
+async def get_ar_glb(task_id: str):
+    manifest_path = MESHES_DIR / task_id / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Manifest not found")
+
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
+
+    ar_glb = manifest.get("ar_glb")
+    if not ar_glb:
+        raise HTTPException(status_code=404, detail="AR model not available for this task")
+
+    glb_path = MESHES_DIR / task_id / ar_glb
+    if not glb_path.exists():
+        raise HTTPException(status_code=404, detail="AR model file missing")
+
+    return FileResponse(glb_path, media_type="model/gltf-binary")
+
 @app.get("/api/volume-info/{task_id}")
 async def get_volume_info(task_id: str):
     # Find the original scan file
