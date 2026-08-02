@@ -103,12 +103,14 @@ def ensure_watertight(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """
     Best-effort close of small defects so volume can be computed.
 
-    Most pipeline bone meshes are very slightly open — a handful of broken faces
-    out of ~25k — which is enough to make trimesh refuse to report a volume.
-    fill_holes only closes boundary loops, so it does not rescue the common case
-    here (non-manifold edges); those keep a volume of None rather than being
-    aggressively remeshed, which would risk moving the surfaces the cut and the
-    sizing are measured from. Sizing does not depend on watertightness.
+    Bone meshes generated since the topology repair landed (src/mesh/topology.py)
+    arrive closed and outward-wound, so this is a no-op on them. It stays as a
+    guard for meshes produced by older pipeline runs, where a handful of
+    non-manifold edges out of ~33k made trimesh refuse to report a volume.
+    fill_holes only closes boundary loops, so it never rescued that case; such a
+    mesh keeps a volume of None rather than being aggressively remeshed, which
+    would risk moving the surfaces the cut and the sizing are measured from.
+    Sizing does not depend on watertightness.
 
     The repair is done on a copy and kept only if it actually achieves
     watertightness, so a genuinely broken mesh is left alone rather than being
@@ -136,17 +138,33 @@ def resect(mesh: trimesh.Trimesh, origin: np.ndarray, normal: np.ndarray) -> tri
 
 
 def cut_surface_dimensions(resected: trimesh.Trimesh, normal: np.ndarray,
-                           tolerance_deg: float = 10.0) -> dict:
+                           origin: np.ndarray = None,
+                           tolerance_deg: float = 10.0,
+                           plane_tol_mm: float = 0.5) -> dict:
     """
     Measure the resection surface: the flat face created by the cut.
 
-    Faces whose normal is within `tolerance_deg` of the cut normal are taken as
-    the cut face; its extents along the in-plane axes give the ML and AP
-    dimensions used for component sizing.
+    A face belongs to the cut if its normal is within `tolerance_deg` of the cut
+    normal *and* it actually lies in the cut plane, within `plane_tol_mm`. The
+    angular test alone is not enough: any part of the bone that happens to face
+    the same way qualifies, and on a proximal tibia that pulled in surface up to
+    55 mm off the plane, inflating AP by as much as 12 mm. It also made the
+    result depend on face winding, so it moved when the winding was corrected.
+
+    `origin` is any point on the cut plane. It is optional only so that older
+    callers keep working; without it the angular test runs alone, as before.
     """
     normal = normal / np.linalg.norm(normal)
     face_normals = resected.face_normals
     aligned = face_normals @ normal >= np.cos(np.radians(tolerance_deg))
+
+    if origin is not None:
+        on_plane = aligned & (
+            np.abs((resected.triangles_center - origin) @ normal) <= plane_tol_mm)
+        # Keep the angular-only selection if nothing survives, so a degenerate
+        # cut still reports something rather than silently collapsing to zero.
+        if np.any(on_plane):
+            aligned = on_plane
 
     if not np.any(aligned):
         return {"ml_mm": 0.0, "ap_mm": 0.0, "area_mm2": 0.0, "found": False}
@@ -187,7 +205,7 @@ def plan_resection(mesh: trimesh.Trimesh, axis: np.ndarray, bone: str,
     if resected is None or len(resected.faces) == 0:
         raise ValueError(f"Resection of {bone} at {depth_mm}mm removed the entire mesh")
 
-    dims = cut_surface_dimensions(resected, normal)
+    dims = cut_surface_dimensions(resected, normal, origin)
     original_vol = float(mesh.volume) if mesh.is_watertight else None
     resected_vol = float(resected.volume) if resected.is_watertight else None
 

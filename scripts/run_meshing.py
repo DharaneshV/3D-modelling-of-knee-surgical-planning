@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import json
 from src.mesh.surface_nets import extract_multilabel_surface
 from src.mesh.processing import fill_label_gaps
+from src.mesh.topology import repair_label_surface
 import SimpleITK as sitk
 # boolean_resolution import removed: unified SurfaceNets produces topologically-consistent
 # bone/cartilage boundaries by construction; no independent-mesh boolean clip needed.
@@ -98,10 +99,26 @@ def main():
         
         # Extract largest connected component to drop any noise pinched off during meshing
         surf = surf.connectivity(extraction_mode='largest')
-        
+
+        # Slicing one label out of the shared multi-label surface leaves the winding
+        # inconsistent (quads are oriented per label pair) and leaves a pinch edge
+        # wherever the mask has a checkerboard voxel configuration. Repair both
+        # before decimating: it is index-only, so no vertex moves, and decimation
+        # frays a pinch into an unfixable hole if it is left in place.
+        surf = repair_label_surface(surf)
+        n_dup = int(surf.field_data['repair_duplicated_vertices'][0])
+        n_unresolved = int(surf.field_data['repair_unresolved_edges'][0])
+        if n_dup or n_unresolved:
+            print(f"  {label_name}: split {n_dup} pinched vertices, "
+                  f"{n_unresolved} edge(s) left unresolved")
+
         # Decimate the mesh to prevent VTK from hanging during boolean operations on 500k+ triangles
         surf = surf.decimate(0.9)
-        
+
+        # Decimation occasionally tears a two-edge slit even in a closed surface,
+        # so run the repair once more and let it cap that (and only that).
+        surf = repair_label_surface(surf, close_holes=True)
+
         # Keep volume preservation natively through SurfaceNets
         # instead of independent label smoothing.
         

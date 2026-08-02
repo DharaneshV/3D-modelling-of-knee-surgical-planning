@@ -6,7 +6,7 @@ This Proof of Concept (POC) successfully established a robust, end-to-end automa
 **Key Achievements:**
 - **Dual-Track Modality**: Built independent, specialized pipelines for both Hard Tissue (CT scans -> Bones) and Soft Tissue (MRI scans -> Cartilage).
 - **Automated Geometry Extraction**: Replaced manual tracing with state-of-the-art segmentation algorithms (Marker-Controlled Watershed and nnU-Net deep learning).
-- **Topological Integrity**: Solved multiple edge-case meshing flaws (hollow shafts, uncapped boundaries) to produce mathematically watertight .obj meshes suitable for immediate simulation and 3D printing.
+- **Topological Integrity**: Solved multiple edge-case meshing flaws (hollow shafts, uncapped boundaries) to produce .obj meshes with no open boundaries. A residual non-manifold-edge defect remained at this stage and is addressed in the MRI track (see `clinical_validation_overview.md`).
 - **Clinical Parameter Extraction**: Automated the measurement of key surgical metrics (Femoral/Tibial volumes, Joint Space Width, Cartilage Thickness) directly from the derived models, matching expected physiological bounds.
 
 Below is the comprehensive engineering walkthrough of the methodology, results, and critical technical lessons learned during the development of both tracks.
@@ -35,7 +35,7 @@ The original issue was caused by calling `sitk.BinaryFillhole()` on the 3D volum
 2. **Padding for Watertight Meshes**: Making the bones solid presented a new topological issueâ€”the marching cubes algorithm now produced solid cylinders that were left "open" (uncapped) where they intersected the Z-bounds of the cropped volume array. We updated `src/mesh/surface_nets.py` to insert a `vtkImageConstantPad` step, adding a 1-voxel border of 0s around the image volume prior to mesh extraction. This successfully caps the clipped ends, ensuring zero boundary edges (no open holes) on the final meshes.
 
 ## 3. Mesh Topological Quality
-We regenerated all meshes utilizing the padded, solid masks. The explicit padding combined with the 2D-hole-filled masks resulted in perfectly capped boundaries. A secondary check using `trimesh` confirms **0 boundary edges** (watertight surfaces) across all bones, in all cases.
+We regenerated all meshes utilizing the padded, solid masks. The explicit padding combined with the 2D-hole-filled masks resulted in perfectly capped boundaries: a check using `trimesh` confirms **0 boundary edges** across all bones, in all cases. Note that zero boundary edges is not the same as watertight — every case below still carried non-manifold edges, so `trimesh.is_watertight` was `False` throughout. See the note under the table.
 
 | Case | Bone | Boundary Edges | Non-Manifold Edges | Watertight (Trimesh) |
 |---|---|---|---|---|
