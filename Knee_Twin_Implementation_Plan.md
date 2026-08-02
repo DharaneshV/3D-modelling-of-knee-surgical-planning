@@ -41,7 +41,7 @@ Why it was abandoned:
 2. **The measured error was disqualifying.** The archived QA-gate comment in `src/synthesis/bone_from_mri.py` recorded a true held-out error of **~7 mm** against gates of ≤3.0 mm (femur) / ≤2.5 mm (tibia). The Mahalanobis gate caught egregious inputs only and guaranteed nothing geometric.
 3. **The CT and MRI sides were never brought into a common frame.** `prep_training_data.py` segments CT bone and MRI cartilage per case and stops — there is no CT↔MRI co-registration step anywhere in the training path. Bone shape was learned in CT space while the predictors were scalar cartilage features from MRI space, so the model could never learn a *spatial* cartilage→bone relationship, only a size correlation across three patients.
 
-**Orphaned artifacts:** `models/ssm/*.pkl` (2 PCA models, 2 ridge regressors, 1 scaler) are tracked in git, deliberately, as historical reference (commit `42437d3`). They are **not loaded by anything**, and the `template_femur.obj` / `template_tibia.obj` meshes they would need are not present — the pickles could not be used to reconstruct a bone even if something tried.
+**Orphaned artifacts:** `models/ssm/*.pkl` (2 PCA models, 2 ridge regressors, 1 scaler) are tracked in git, deliberately, as historical reference (commit `42437d3`). They are **not loaded by anything**. The `template_femur.obj` / `template_tibia.obj` meshes they would need are present on disk but *untracked* — `.gitignore`'s blanket `*.obj` rule excludes them — so a fresh clone gets the pickles without the templates they depend on.
 
 ### 1.2 Attempt 2 — generic reference bone fitted by scale + rigid ICP. ❌ Retired at v3.2.
 The interim replacement (commit `4956223`) dropped the shape model for a DU02-derived generic bone, uniformly scaled to the patient's cartilage bounding box and seated by rigid ICP. It was explicitly labelled illustrative-only: no patient-specific morphology, no osteophytes, no varus/valgus, and visible clipping against severe-OA cartilage.
@@ -200,4 +200,4 @@ Kept only so the retired work is traceable. **Superseded; do not implement.** Fu
 - **Inference gate:** Mahalanobis distance of predicted coefficients > 3.0σ → reject and flag.
 - **Training gate:** LOO-CV mean surface distance ≤3.0 mm (femur) / ≤2.5 mm (tibia).
 - **Outcome:** ~7 mm held-out error against those gates, on N=3, with no CT↔MRI co-registration in the training path. Retired.
-- **Surviving artifacts:** `models/ssm/{pca_model_femur,pca_model_tibia,shape_regressor_femur,shape_regressor_tibia,cart_feature_scaler}.pkl` — orphaned, unloaded, and missing the template meshes they would require.
+- **Surviving artifacts:** `models/ssm/{pca_model_femur,pca_model_tibia,shape_regressor_femur,shape_regressor_tibia,cart_feature_scaler}.pkl` — orphaned and unloaded. The `template_*.obj` meshes they would require exist on disk but are untracked (`.gitignore`'s `*.obj`), so they are absent from a fresh clone.
