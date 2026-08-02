@@ -124,7 +124,7 @@ def main():
     gltf_path = os.path.join(args.output_dir, f"{base_name}_{args.track}_colored_scene.gltf")
     pl.export_gltf(gltf_path)
     print(f"Saved colored GLTF scene to {gltf_path}")
-        
+
     # QA Inter-Region Overlap Check
     print("Running QA Inter-Region Overlap Check...")
     
@@ -185,6 +185,15 @@ def main():
             quarantine_log = existing + quarantine_log
         with open(q_path, "w") as f:
             json.dump(quarantine_log, f, indent=4)
-                
+
+    # AR-ready export (mm->m + LPS->glTF Y-up transform, per-part color).
+    # Runs after the QA overlap check so quarantined/deleted parts are excluded.
+    from src.mesh.export_ar_glb import export_ar_glb
+    ar_glb_path = export_ar_glb(args.output_dir, label_map, LABEL_COLORS, base_name, args.track)
+    if ar_glb_path:
+        print(f"Saved AR-ready GLB to {ar_glb_path}")
+    else:
+        print("Skipped AR-ready GLB export — no label parts found.")
+
 if __name__ == "__main__":
     main()

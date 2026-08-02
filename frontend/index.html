@@ -12,6 +12,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- model-viewer for AR preview (Android/WebXR + Scene Viewer) -->
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -127,9 +130,12 @@
                 
                 <!-- Panel 3: Report -->
                 <aside class="panel sidebar-results" style="display: flex; flex-direction: column;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 0.5rem;">
                         <h3>Clinical Report</h3>
-                        <a id="download-report-btn" class="btn-primary" style="display: none; text-decoration: none;" target="_blank">Download PDF</a>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="view-ar-btn" class="btn-secondary" style="display: none;">View in AR</button>
+                            <a id="download-report-btn" class="btn-primary" style="display: none; text-decoration: none;" target="_blank">Download PDF</a>
+                        </div>
                     </div>
                     
                     <div id="report-placeholder" style="flex-grow: 1; display: flex; align-items: center; justify-content: center; border: 1px dashed rgba(255,255,255,0.2); border-radius: 8px;">
@@ -185,6 +191,16 @@
                 
                 <p id="error-text" class="text-danger" style="display: none;"></p>
                 <button class="btn-secondary" id="cancel-btn" style="display: none; margin-top: 1rem;">Close</button>
+            </div>
+        </div>
+
+        <!-- AR Preview Modal -->
+        <div id="ar-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center;">
+            <div style="position: relative; width: 90%; height: 90%;">
+                <button class="btn-secondary" id="ar-modal-close" style="position: absolute; top: 1rem; right: 1rem; z-index: 10;">Close</button>
+                <model-viewer id="ar-model-viewer" style="width: 100%; height: 100%; background: #1a1a2e; border-radius: 8px;"
+                    camera-controls ar ar-modes="webxr scene-viewer" shadow-intensity="1" exposure="1">
+                </model-viewer>
             </div>
         </div>
     </div>

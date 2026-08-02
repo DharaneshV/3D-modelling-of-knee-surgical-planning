@@ -81,6 +81,13 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBtn.click();
     });
 
+    const arModal = document.getElementById('ar-modal');
+    const arModelViewer = document.getElementById('ar-model-viewer');
+    document.getElementById('ar-modal-close').addEventListener('click', () => {
+        arModal.style.display = 'none';
+        arModelViewer.src = '';
+    });
+
     cancelBtn.addEventListener('click', () => {
         processingOverlay.style.display = 'none';
         document.querySelector('.spinner').style.display = 'block';
@@ -224,7 +231,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const downloadBtn = document.getElementById('download-report-btn');
             downloadBtn.href = `${API_BASE}/report/${taskId}/pdf`;
             downloadBtn.style.display = 'block';
-            
+
+            // AR availability (MRI track only, when export_ar_glb produced a model)
+            const arBtn = document.getElementById('view-ar-btn');
+            try {
+                const manifestRes = await fetch(`${API_BASE}/manifest/${taskId}`);
+                const manifest = await manifestRes.json();
+                if (manifest.ar_glb) {
+                    arBtn.style.display = 'block';
+                    arBtn.onclick = () => {
+                        arModelViewer.src = `${API_BASE}/ar/${taskId}`;
+                        arModal.style.display = 'flex';
+                    };
+                } else {
+                    arBtn.style.display = 'none';
+                }
+            } catch (e) {
+                console.error("Failed to check AR availability", e);
+                arBtn.style.display = 'none';
+            }
+
         } catch (e) {
             console.error("Failed to load report data", e);
             document.getElementById('report-placeholder-text').textContent = 'Failed to load report data';
