@@ -154,7 +154,11 @@ cython_debug/
 
 # Project-specific data and results
 data/
-results/
+# results/* (not results/) so git still descends into the dir and the
+# negation below can take effect — a parent dir exclusion can't be undone.
+results/*
+# The accuracy report is a core spec deliverable — keep it tracked.
+!results/dice_scores_summary.csv
 measurement_validation.csv
 node_modules/
 package-lock.json

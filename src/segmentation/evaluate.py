@@ -52,7 +52,7 @@ def run_evaluation(data_dir, predictions_dir, output_csv="results/accuracy_repor
             prediction=pred_img,
             ground_truth=gt_img,
             case_id=case_id,
-            labels_map=labels_map
+            labels=labels_map
         )
         all_results.extend(case_results)
 
