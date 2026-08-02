@@ -12,29 +12,58 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
+# Run as a subprocess (`python backend/report_generator.py`), so sys.path[0] is
+# backend/, not the repo root. Needed for the src.mesh imports below.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 try:
     import SimpleITK as sitk
     HAS_SITK = True
 except ImportError:
     HAS_SITK = False
 
+# A PCA axis is only trusted if it agrees with the anatomical reference to
+# within ~45 degrees. Below that the principal component has locked onto a
+# transverse dimension rather than the shaft.
+AXIS_AGREEMENT_THRESHOLD = 0.7
+
+
 def calculate_anatomic_axis(vertices, reference_dir=None):
-    """Compute the anatomical axis vector using PCA."""
+    """
+    Compute a bone's longitudinal axis.
+
+    PCA recovers the shaft direction only when the bone is imaged long enough to
+    be its own longest dimension. On a knee-only MRI FOV it is not: the tibia is
+    roughly 60mm of length against a 73mm-wide plateau, so the principal
+    component comes back mediolateral and the "long axis" is transverse.
+
+    When reference_dir is supplied (the femur->tibia centroid vector is a stable
+    limb-axis proxy) the PCA result is accepted only if it broadly agrees with
+    it; otherwise the reference direction is used instead.
+
+    Returns:
+        (axis, pca_trusted) — pca_trusted is False when the PCA result was
+        rejected and reference_dir was substituted.
+    """
     centered = vertices - np.mean(vertices, axis=0)
     cov = np.cov(centered, rowvar=False)
     eigvals, eigvecs = np.linalg.eigh(cov)
     # The primary axis corresponds to the eigenvector with the largest eigenvalue
     primary_axis = eigvecs[:, np.argmax(eigvals)]
-    
-    if reference_dir is not None:
-        if np.dot(primary_axis, reference_dir) < 0:
-            primary_axis = -primary_axis
-    else:
+
+    if reference_dir is None:
         # Fallback to positive Z if no reference is given
         if primary_axis[2] < 0:
             primary_axis = -primary_axis
-            
-    return primary_axis
+        return primary_axis, True
+
+    if np.dot(primary_axis, reference_dir) < 0:
+        primary_axis = -primary_axis
+
+    if np.dot(primary_axis, reference_dir) < AXIS_AGREEMENT_THRESHOLD:
+        return reference_dir, False
+
+    return primary_axis, True
 
 def get_roi_sizing(vertices, long_axis, is_femur=True, side='unknown'):
     # Project all vertices onto the longitudinal axis to find min/max
@@ -91,6 +120,7 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
         "femur_ml": "N/A - Mesh data missing", "femur_ap": "N/A - Mesh data missing",
         "tibia_ml": "N/A - Mesh data missing", "tibia_ap": "N/A - Mesh data missing",
         "alignment_angle": "N/A - Mesh data missing",
+        "sizing_basis": "unavailable",
         "medial_thick": "2.2", "lateral_thick": "2.4", "trochlear_thick": "2.1" # Mocked/N/A for CT
     }
     
@@ -137,29 +167,65 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
             if np.linalg.norm(up_vector) > 0:
                 up_vector = up_vector / np.linalg.norm(up_vector)
             
-            # Anatomic Axis Angle via PCA (3D)
-            f_axis = calculate_anatomic_axis(femur.vertices, reference_dir=up_vector)
-            t_axis = calculate_anatomic_axis(tibia.vertices, reference_dir=up_vector)
-            
+            f_axis, f_pca_ok = calculate_anatomic_axis(femur.vertices, reference_dir=up_vector)
+            t_axis, t_pca_ok = calculate_anatomic_axis(tibia.vertices, reference_dir=up_vector)
+
             # Verify symmetry/consistency (log only)
-            print(f"DEBUG [{side}]: Femur primary axis: {f_axis}")
-            print(f"DEBUG [{side}]: Tibia primary axis: {t_axis}")
+            print(f"DEBUG [{side}]: Femur primary axis: {f_axis} (pca_trusted={f_pca_ok})")
+            print(f"DEBUG [{side}]: Tibia primary axis: {t_axis} (pca_trusted={t_pca_ok})")
+
+            # The angle between the two shafts is only meaningful if each shaft
+            # direction was actually recovered. Where PCA was rejected, both
+            # bones fall back to the same limb-axis proxy and the angle collapses
+            # to 0 degrees — a fabricated number, not a measurement. A knee-only
+            # FOV has no hip or ankle centre, so there is no mechanical axis to
+            # fall back on either.
+            if f_pca_ok and t_pca_ok:
+                cos_theta = np.dot(f_axis, t_axis) / (np.linalg.norm(f_axis) * np.linalg.norm(t_axis))
+                cos_theta = np.clip(cos_theta, -1.0, 1.0)
+                metrics["alignment_angle"] = round(float(np.degrees(np.arccos(cos_theta))), 1)
+            else:
+                metrics["alignment_angle"] = "N/A - Requires full-limb imaging"
             
-            cos_theta = np.dot(f_axis, t_axis) / (np.linalg.norm(f_axis) * np.linalg.norm(t_axis))
-            cos_theta = np.clip(cos_theta, -1.0, 1.0)
-            metrics["alignment_angle"] = round(float(np.degrees(np.arccos(cos_theta))), 1)
-            
-            # Sizing (Bounding Box spreads) via PCA on proportional ROI
-            metrics["femur_ml"], metrics["femur_ap"] = get_roi_sizing(femur.vertices, f_axis, is_femur=True, side=side)
-            metrics["tibia_ml"], metrics["tibia_ap"] = get_roi_sizing(tibia.vertices, t_axis, is_femur=False, side=side)
+            # Implant sizing is measured on the resection surface, matching how a
+            # component is sized surgically. Measuring at the joint surface
+            # instead reports the tibial intercondylar eminence rather than the
+            # plateau — 45.6mm ML against a true 83.7mm on a verified case.
+            # The limb axis is used (not the per-bone PCA axis) so these agree
+            # with /api/resect, which plans the same cuts.
+            try:
+                from src.mesh.resection import plan_resection
+                f_plan = plan_resection(femur, up_vector, "femur")
+                t_plan = plan_resection(tibia, up_vector, "tibia")
+                metrics["femur_ml"] = f_plan["cut_surface"]["ml_mm"]
+                metrics["femur_ap"] = f_plan["cut_surface"]["ap_mm"]
+                metrics["tibia_ml"] = t_plan["cut_surface"]["ml_mm"]
+                metrics["tibia_ap"] = t_plan["cut_surface"]["ap_mm"]
+                metrics["sizing_basis"] = (
+                    f"resection surface, {f_plan['depth_mm']:.0f}mm femoral / "
+                    f"{t_plan['depth_mm']:.0f}mm tibial"
+                )
+            except Exception as e:
+                # Loud, not silent: the fallback measures a different thing and
+                # the report must say so rather than quietly reporting it.
+                print(f"WARNING [{side}]: resection-level sizing failed ({e}); "
+                      f"falling back to joint-surface ROI")
+                metrics["femur_ml"], metrics["femur_ap"] = get_roi_sizing(femur.vertices, f_axis, is_femur=True, side=side)
+                metrics["tibia_ml"], metrics["tibia_ap"] = get_roi_sizing(tibia.vertices, t_axis, is_femur=False, side=side)
+                metrics["sizing_basis"] = "joint-surface ROI (fallback; under-reports tibial width)"
             
             # JSW Calculation
-            metrics["jsw"] = 0.0
             metrics["jsw_overlap"] = False
             jsw_computed = False
             
+            if modality == "CT":
+                metrics["jsw"] = "N/A - Requires MRI"
+                jsw_computed = True
+            else:
+                metrics["jsw"] = 0.0
+            
             # Mask-based JSW Calculation
-            if mask_path.exists() and HAS_SITK:
+            if not jsw_computed and mask_path.exists() and HAS_SITK:
                 try:
                     f_mask = arr == f_label
                     t_mask = arr == t_label
@@ -196,6 +262,9 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
                         
                         correction = np.sum(np.abs(v / center_dist) * spacing) if center_dist > 0 else 0.0
                         surface_dist = center_dist - correction
+                        
+                        if surface_dist <= 0:
+                            metrics["jsw_overlap"] = True
                         surface_dist = max(0.0, surface_dist)
                         
                         metrics["jsw"] = float(f"{surface_dist:.1f}")
@@ -234,8 +303,10 @@ def build_metrics_list(metrics, modality):
         return f"{val}{unit}"
 
     jsw_caveat = "Minimum distance at joint space"
-    if metrics.get("jsw_overlap"):
-        jsw_caveat = "Measurement uncertain — mesh overlap detected"
+    if modality == "CT":
+        jsw_caveat = "N/A - Requires MRI"
+    elif metrics.get("jsw_overlap"):
+        jsw_caveat = "Measurement uncertain — resolution limit or mesh overlap"
     elif isinstance(metrics["jsw"], str) and "N/A" in metrics["jsw"]:
         jsw_caveat = "Required mesh file missing"
         
@@ -265,17 +336,22 @@ def build_metrics_list(metrics, modality):
         {
             "name": "Anatomic Axis Angle",
             "value": format_val(metrics['alignment_angle'], "°"),
-            "caveat": "Calculated via PCA of bone shafts" if not isinstance(metrics['alignment_angle'], str) else "Required mesh file missing"
+            "caveat": (
+                "Calculated via PCA of bone shafts"
+                if not isinstance(metrics['alignment_angle'], str)
+                else "Shaft axes not recoverable from this field of view; "
+                     "a true mechanical axis requires hip-to-ankle imaging"
+            )
         },
         {
             "name": "Femur ML Width / AP Depth",
             "value": f"{metrics['femur_ml']} mm / {metrics['femur_ap']} mm" if not isinstance(metrics['femur_ml'], str) else metrics['femur_ml'],
-            "caveat": "Implant sizing reference dimensions" if not isinstance(metrics['femur_ml'], str) else "Required mesh file missing"
+            "caveat": f"Implant sizing reference, measured at {metrics['sizing_basis']}" if not isinstance(metrics['femur_ml'], str) else "Required mesh file missing"
         },
         {
             "name": "Tibia ML Width / AP Depth",
             "value": f"{metrics['tibia_ml']} mm / {metrics['tibia_ap']} mm" if not isinstance(metrics['tibia_ml'], str) else metrics['tibia_ml'],
-            "caveat": "Implant sizing reference dimensions" if not isinstance(metrics['tibia_ml'], str) else "Required mesh file missing"
+            "caveat": f"Implant sizing reference, measured at {metrics['sizing_basis']}" if not isinstance(metrics['tibia_ml'], str) else "Required mesh file missing"
         },
         {
             "name": "Cartilage Thickness",
@@ -286,6 +362,26 @@ def build_metrics_list(metrics, modality):
 
 def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: str, mask_path: str = None):
     scan_date = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    quarantine_log_path = Path(mesh_dir) / "quarantine_log.json"
+    quarantined_bones = {}
+    quarantine_warnings = []
+    if quarantine_log_path.exists():
+        try:
+            with open(quarantine_log_path, "r") as f:
+                q_log = json.load(f)
+                for entry in q_log:
+                    for b in entry.get("bones", []):
+                        quarantined_bones[b] = entry
+                    bones_str = " and ".join([b.replace('_', ' ').title() for b in entry.get("bones", [])])
+                    if entry.get("status") == "deleted":
+                        quarantine_warnings.append(
+                            f"<b><font color='red'>WARNING:</font> The {bones_str} were automatically excluded from 3D analysis "
+                            f"due to severe topological intersection (artefact). They intersected by {entry.get('intersection_faces')} "
+                            f"faces, exceeding the {entry.get('threshold')} face safety threshold. Downstream spatial metrics are unavailable for these regions.</b>"
+                        )
+        except Exception as e:
+            print("Failed to read quarantine log:", e)
     
     # Read laterality summary
     laterality_summary_path = Path(mesh_dir) / "laterality_summary.json"
@@ -303,6 +399,7 @@ def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: 
     all_metrics = {}
     for side in sides_present:
         all_metrics[side] = calculate_side_metrics(Path(mesh_dir), side, laterality_summary, modality, mask_path)
+        all_metrics[side]['quarantined'] = quarantined_bones
         
     # Impression logic
     impressions = ["Quantitative knee geometry analysis completed successfully."]
@@ -330,6 +427,7 @@ def generate_report_data(task_id: str, modality: str, file_path: str, mesh_dir: 
     )
 
     data_dict = {
+        "quarantine_warnings": quarantine_warnings,
         "task_id": task_id,
         "modality": modality,
         "scan_date": scan_date,
@@ -385,6 +483,10 @@ def generate_pdf(data_dict, mesh_dir, task_id):
     story.append(Spacer(1, 12))
     
     # Overlay Image
+    if data_dict.get("quarantine_warnings"):
+        for w in data_dict.get("quarantine_warnings"):
+            story.append(Paragraph(w, styles['Normal']))
+            story.append(Spacer(1, 12))
     slice_img_path = Path(mesh_dir).parent.parent / "tasks" / task_id / "slices" / "axial_15.png"
     if slice_img_path.exists():
         story.append(Paragraph("<b>Segmentation Overlay (Mid-Axial)</b>", styles['Heading3']))

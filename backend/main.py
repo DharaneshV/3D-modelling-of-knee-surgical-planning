@@ -6,6 +6,7 @@ import uuid
 import json
 from pathlib import Path
 import glob
+import numpy as np
 import SimpleITK as sitk
 from fastapi.responses import Response, JSONResponse, FileResponse
 from backend.pipeline_runner import run_pipeline_async, get_status_path, update_status, check_cache, UPLOADS_DIR, MESHES_DIR, TASKS_DIR
@@ -180,37 +181,146 @@ async def get_mesh(task_id: str, file_name: str):
         manifest = json.load(f)
         
     valid_files = [p["file"] for p in manifest.get("parts", [])]
+    # Resection output is generated on demand by /api/resect, so it is not in the
+    # manifest; allow the fixed set of names that endpoint writes.
+    valid_files += ["femur_resected.obj", "tibia_resected.obj"]
     if file_name not in valid_files:
         raise HTTPException(status_code=403, detail="File not in task manifest whitelist")
         
     mesh_path = MESHES_DIR / task_id / file_name
     if not mesh_path.exists():
         raise HTTPException(status_code=404, detail="Mesh file not found")
-        
+
     return FileResponse(mesh_path)
+
+@app.get("/api/ar/{task_id}")
+async def get_ar_glb(task_id: str):
+    manifest_path = MESHES_DIR / task_id / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Manifest not found")
+
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
+
+    ar_glb = manifest.get("ar_glb")
+    if not ar_glb:
+        raise HTTPException(status_code=404, detail="AR model not available for this task")
+
+    glb_path = MESHES_DIR / task_id / ar_glb
+    if not glb_path.exists():
+        raise HTTPException(status_code=404, detail="AR model file missing")
+
+    return FileResponse(glb_path, media_type="model/gltf-binary")
+
+# Single decoded volume kept in memory so slice scrubbing doesn't re-read from
+# disk on every request. Shared by /api/volume-info and /api/slices.
+_volume_cache = {"task_id": None, "image": None}
+
+
+def _load_volume(task_id: str, file_path: str) -> sitk.Image:
+    if _volume_cache["task_id"] != task_id:
+        _volume_cache["task_id"] = task_id
+        _volume_cache["image"] = sitk.ReadImage(file_path)
+    return _volume_cache["image"]
+
+
+@app.get("/api/resect/{task_id}")
+async def resect_bones(task_id: str,
+                       femur_depth_mm: float = 9.0,
+                       tibia_depth_mm: float = 10.0,
+                       varus_deg: float = 0.0,
+                       slope_deg: float = 0.0):
+    """
+    Plan the distal-femoral and proximal-tibial resections for a task.
+
+    Writes the cut meshes alongside the originals and returns the measurements a
+    surgeon would size a component from. Only the MRI track is supported: the
+    label names below are CartiMorph's.
+    """
+    import trimesh
+    from src.mesh.resection import limb_axis, plan_resection
+    from src.mesh.export_ar_glb import export_ar_glb_from_meshes
+
+    task_dir = MESHES_DIR / task_id
+    femur_path = task_dir / "femur_unknown.obj"
+    tibia_path = task_dir / "tibia_unknown.obj"
+
+    if not femur_path.exists() or not tibia_path.exists():
+        raise HTTPException(status_code=404,
+                            detail="Femur and tibia meshes not found for this task")
+
+    if not (0 < femur_depth_mm < 40 and 0 < tibia_depth_mm < 40):
+        raise HTTPException(status_code=400,
+                            detail="Resection depth must be between 0 and 40 mm")
+    if abs(varus_deg) > 15 or abs(slope_deg) > 15:
+        raise HTTPException(status_code=400,
+                            detail="Angulation must be within +/-15 degrees")
+
+    try:
+        femur = trimesh.load_mesh(str(femur_path), process=False)
+        tibia = trimesh.load_mesh(str(tibia_path), process=False)
+        axis = limb_axis(femur.vertices, tibia.vertices)
+
+        results = {}
+        cut_meshes = {}
+        for bone, mesh, depth in (("femur", femur, femur_depth_mm),
+                                  ("tibia", tibia, tibia_depth_mm)):
+            plan = plan_resection(mesh, axis, bone, depth_mm=depth,
+                                  varus_deg=varus_deg, slope_deg=slope_deg)
+            cut_meshes[bone] = plan.pop("mesh")
+            cut_meshes[bone].export(str(task_dir / f"{bone}_resected.obj"))
+            results[bone] = plan
+
+        # AR-ready GLB of the resected state, same transform as the intact export.
+        glb_name = f"{task_id}_resected_ar.glb"
+        export_ar_glb_from_meshes(
+            {"femur_unknown": cut_meshes["femur"], "tibia_unknown": cut_meshes["tibia"]},
+            str(task_dir / glb_name),
+            {"femur_unknown": "#e74c3c", "tibia_unknown": "#2ecc71"},
+        )
+
+        return {
+            "task_id": task_id,
+            "limb_axis": [round(float(x), 4) for x in axis],
+            "axis_note": ("Limb-axis proxy from bone centroids. A knee-only field "
+                          "of view contains no hip or ankle centre, so this is not "
+                          "a mechanical axis."),
+            "resections": results,
+            "ar_glb": glb_name,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Resection failed: {str(e)}")
+
+
 @app.get("/api/volume-info/{task_id}")
 async def get_volume_info(task_id: str):
     # Find the original scan file
     files = glob.glob(str(UPLOADS_DIR / f"{task_id}_*"))
     if not files:
         raise HTTPException(status_code=404, detail="Original scan not found for this task")
-        
+
     file_path = files[0]
-    
+
     try:
-        reader = sitk.ImageFileReader()
-        reader.SetFileName(file_path)
-        reader.ReadImageInformation()
-        size = reader.GetSize()
-        spacing = reader.GetSpacing()
-        
+        img = _load_volume(task_id, file_path)
+        size = img.GetSize()
+        spacing = img.GetSpacing()
+
         # Read status to get modality if possible
         modality = "UNKNOWN"
         status_path = get_status_path(task_id)
         if status_path.exists():
             with open(status_path, "r") as f:
                 modality = json.load(f).get("modality", "UNKNOWN")
-                
+
+        # Intensity range so the frontend can scale its window/level sliders to
+        # the data. MRI has no fixed scale like CT's Hounsfield units, so
+        # hard-coded HU slider bounds are meaningless on an MR volume.
+        arr = sitk.GetArrayViewFromImage(img)
+        p1, p99 = np.percentile(arr, (1.0, 99.0))
+
         return {
             "num_slices": {
                 "sagittal": size[0],
@@ -218,7 +328,13 @@ async def get_volume_info(task_id: str):
                 "axial": size[2]
             },
             "spacing": spacing,
-            "modality": modality
+            "modality": modality,
+            "intensity": {
+                "min": float(arr.min()),
+                "max": float(arr.max()),
+                "p1": float(p1),
+                "p99": float(p99),
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read volume info: {str(e)}")
@@ -235,16 +351,7 @@ async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: 
     file_path = files[0]
     
     try:
-        # Cache the volume in memory to avoid reading from disk on every slice request
-        global _volume_cache
-        if "_volume_cache" not in globals():
-            _volume_cache = {"task_id": None, "image": None}
-            
-        if _volume_cache["task_id"] != task_id:
-            _volume_cache["task_id"] = task_id
-            _volume_cache["image"] = sitk.ReadImage(file_path)
-            
-        img = _volume_cache["image"]
+        img = _load_volume(task_id, file_path)
         size = img.GetSize()
         
         # Bounds check
@@ -272,13 +379,19 @@ async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: 
             if modality == "CT":
                 wc, ww = 650, 1700 # bone window approx [-200, 1500]
             else:
-                # auto-window based on min/max of slice
-                stats = sitk.StatisticsImageFilter()
-                stats.Execute(slice_img)
-                min_v = stats.GetMinimum()
-                max_v = stats.GetMaximum()
-                ww = max_v - min_v
-                wc = min_v + ww / 2.0
+                # MRI has no standardised intensity scale, so the window is derived
+                # per-slice. Use percentiles, not min/max: a handful of hot voxels
+                # (fat, flow artifact) can sit an order of magnitude above the tissue
+                # range, and stretching the window to them crushes all the anatomy
+                # into the bottom few percent of the display range — the scan then
+                # renders almost black.
+                arr = sitk.GetArrayViewFromImage(slice_img).astype(float)
+                lo, hi = np.percentile(arr, (1.0, 99.0))
+                ww = float(hi - lo)
+                if ww <= 0:  # near-uniform slice (e.g. empty end-of-volume slice)
+                    lo, hi = float(arr.min()), float(arr.max())
+                    ww = max(hi - lo, 1.0)
+                wc = lo + ww / 2.0
                 
         # Apply window
         windowed = sitk.IntensityWindowing(slice_img, windowMinimum=wc - ww/2.0, windowMaximum=wc + ww/2.0, outputMinimum=0, outputMaximum=255)

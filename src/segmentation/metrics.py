@@ -142,12 +142,15 @@ def compute_surface_distance(
 # Multi-label evaluation
 # ---------------------------------------------------------------------------
 
+# CartiMorph / OAI-ZIB label convention — matches the MRI track's segmentation
+# output and data/oaizib/labelsTs ground truth. Pass an explicit `labels` dict
+# for any other track (e.g. CT bone, which is laterality-split).
 LABEL_NAMES = {
     1: "femur",
-    2: "tibia",
-    3: "patella",
-    4: "femoral_cartilage",
-    5: "tibial_cartilage",
+    2: "femoral_cartilage",
+    3: "tibia",
+    4: "medial_tibial_cartilage",
+    5: "lateral_tibial_cartilage",
 }
 
 

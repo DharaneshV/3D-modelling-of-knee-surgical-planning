@@ -138,7 +138,10 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     mesh_cmd = [python_exe, "scripts/run_meshing.py", "--input", mask_output, "--output_dir", str(task_mesh_dir), "--track", track]
     result_mesh = subprocess.run(mesh_cmd, capture_output=True, text=True)
     if result_mesh.returncode != 0:
-        raise Exception(f"Meshing script failed: {result_mesh.stderr.strip()}")
+        raise Exception(f"Meshing script failed:\nSTDOUT:\n{result_mesh.stdout.strip()}\nSTDERR:\n{result_mesh.stderr.strip()}")
+
+    # Bone labels (1=femur, 3=tibia) are now meshed in the same unified SurfaceNets
+    # pass as cartilage — no synthesis step needed.
     
     # Read laterality summary if it exists (CT only)
     laterality_summary = {}
@@ -150,10 +153,17 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     laterality = laterality_summary.get("laterality", "unknown")
     sides_present = laterality_summary.get("sides_present", ["left", "right"])
 
+    # AR-ready GLB, if run_meshing.py produced one (see scripts/run_meshing.py's
+    # export_ar_glb call). Filename mirrors run_meshing.py's own base_name derivation.
+    mask_base_name = os.path.basename(mask_output).replace(".nii.gz", "").replace(".nii", "")
+    ar_glb_filename = f"{mask_base_name}_{track}_ar.glb"
+    ar_glb_path = task_mesh_dir / ar_glb_filename
+
     manifest = {
         "task_id": task_id,
         "modality": modality,
         "laterality": laterality,
+        "ar_glb": ar_glb_filename if ar_glb_path.exists() else None,
         "parts": []
     }
     
