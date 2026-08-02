@@ -173,6 +173,11 @@ outputs/
 *.png
 temp_*/
 test_*.py
+# ...but the real pytest suite must stay tracked. The unanchored rule above was
+# meant for the ad-hoc test_*.py scratch scripts at repo root, and silently
+# swallowed tests/ too — which is how tests/test_boolean_resolution.py drifted
+# out of sync with its module without ever showing up in a diff.
+!tests/test_*.py
 test_ct.nii.gz
 test_correlation.py
 
