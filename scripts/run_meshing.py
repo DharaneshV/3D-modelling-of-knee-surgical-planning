@@ -10,7 +10,8 @@ import json
 from src.mesh.surface_nets import extract_multilabel_surface
 from src.mesh.processing import fill_label_gaps
 import SimpleITK as sitk
-from backend.mesh_processing.boolean_resolution import resolve_bone_cartilage_boundary
+# boolean_resolution import removed: unified SurfaceNets produces topologically-consistent
+# bone/cartilage boundaries by construction; no independent-mesh boolean clip needed.
 import subprocess
 
 # Pre-defined label maps for different tracks
@@ -21,8 +22,10 @@ LABEL_MAPS = {
         "patella_left": 5, "patella_right": 6
     },
     "mri_cartilage": {
-        "femoral_cartilage": 2, 
-        "medial_tibial_cartilage": 4, 
+        "femur_unknown": 1,          # CartiMorph label 1 — femur bone (native MRI geometry)
+        "femoral_cartilage": 2,
+        "tibia_unknown": 3,          # CartiMorph label 3 — tibia bone (native MRI geometry)
+        "medial_tibial_cartilage": 4,
         "lateral_tibial_cartilage": 5
     }
 }

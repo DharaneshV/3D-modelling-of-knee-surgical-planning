@@ -1,4 +1,23 @@
+# =============================================================================
+# ARCHIVED — not called by the live pipeline as of PIPELINE_VERSION v3.2.
+#
+# This module implemented a DU02-scaled generic bone proxy fitted to native MRI
+# cartilage via uniform scale + rigid ICP, intended to provide a plausible bone
+# context when only cartilage geometry could be trusted from MRI (Track 3 / SSM).
+#
+# It is no longer needed because:
+#   - OAI-ZIB is MRI-only; CartiMorph's label 1 (femur) and label 3 (tibia) are
+#     real per-patient geometry from the same segmentation run as cartilage.
+#   - Bone is visual-context-only (not used for implant sizing), so MRI bone-
+#     boundary fidelity is sufficient.
+#   - Labels 1 and 3 are now meshed directly in the unified vtkSurfaceNets3D pass,
+#     giving topologically consistent bone/cartilage boundaries by construction.
+#
+# Do NOT re-import without re-evaluating the full rationale. The SSM/PCA/Mahalanobis
+# gate machinery depends on models in models/ssm/ which may no longer be maintained.
+# =============================================================================
 import os
+
 import sys
 from pathlib import Path
 # Ensure root is in PYTHONPATH

@@ -119,8 +119,8 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         seg_cmd = [python_exe, "src/segmentation/run_mri_segmentation.py", "--input", file_path, "--output", mask_output]
         track = "mri_cartilage"
         expected_parts = [
-            {"file": "visual_femur.obj", "label": "Femur Bone (Visual)", "color": "#e74c3c"},
-            {"file": "visual_tibia.obj", "label": "Tibia Bone (Visual)", "color": "#2ecc71"},
+            {"file": "femur_unknown.obj", "label": "Femur Bone", "color": "#e74c3c"},
+            {"file": "tibia_unknown.obj", "label": "Tibia Bone", "color": "#2ecc71"},
             {"file": "femoral_cartilage.obj", "label": "Femoral Cartilage", "color": "#ff9f43"},
             {"file": "medial_tibial_cartilage.obj", "label": "Medial Tibial Cartilage", "color": "#00d2d3"},
             {"file": "lateral_tibial_cartilage.obj", "label": "Lateral Tibial Cartilage", "color": "#54a0ff"}
@@ -140,13 +140,9 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     if result_mesh.returncode != 0:
         raise Exception(f"Meshing script failed:\nSTDOUT:\n{result_mesh.stdout.strip()}\nSTDERR:\n{result_mesh.stderr.strip()}")
 
-    if modality == "MRI":
-        update_status(task_id, "synthesizing_bone", modality=modality)
-        from src.synthesis.bone_from_mri import align_and_scale_bone
-        
-        align_and_scale_bone(task_mesh_dir, "femur")
-        align_and_scale_bone(task_mesh_dir, "tibia")
-        
+    # Bone labels (1=femur, 3=tibia) are now meshed in the same unified SurfaceNets
+    # pass as cartilage — no synthesis step needed.
+    
     # Read laterality summary if it exists (CT only)
     laterality_summary = {}
     laterality_summary_path = task_mesh_dir / "laterality_summary.json"
