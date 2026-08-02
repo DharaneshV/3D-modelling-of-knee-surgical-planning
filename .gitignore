@@ -181,6 +181,9 @@ test_*.py
 test_ct.nii.gz
 test_correlation.py
 
+# Agent worktrees — checkouts of this same repo, never their own content
+.claude/worktrees/
+
 # Large generated experiment data/outputs (keep experiments/*/*.py source tracked)
 experiments/*/data/
 experiments/*/output/
