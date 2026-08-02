@@ -119,8 +119,8 @@ def main():
     print("\n" + "=" * 82)
     print(f"SEGMENTATION ACCURACY - OAI-ZIB test set ({n_cases} cases)")
     print("=" * 82)
-    print(f"{'Structure':<28} | {'Dice (mean +/- sd)':<20} | {'Max HD mm':<10} | {'ASSD mm':<8} | Gate")
-    print("-" * 82)
+    print(f"{'Structure':<28} | {'Dice (mean +/- sd)':<20} | {'HD95':<7} | {'MaxHD':<7} | {'ASSD':<7} | Gate")
+    print("-" * 96)
 
     bone = {"femur", "tibia", "patella"}
     for name in OAIZIB_LABELS.values():
@@ -128,12 +128,23 @@ def main():
         if sub.empty:
             continue
         assd = pd.to_numeric(sub["assd_mm"], errors="coerce")
+        hd95 = pd.to_numeric(sub["hd95_mm"], errors="coerce")
         threshold = 0.90 if name in bone else 0.75
         verdict = "PASS" if sub["dice"].mean() >= threshold else "FAIL"
         print(f"{name:<28} | "
               f"{sub['dice'].mean():.4f} +/- {sub['dice'].std():.4f}  | "
-              f"{sub['hausdorff_mm'].mean():<10.2f} | "
-              f"{assd.mean():<8.3f} | {verdict} (>={threshold:.2f})")
+              f"{hd95.mean():<7.2f} | "
+              f"{sub['hausdorff_mm'].mean():<7.2f} | "
+              f"{assd.mean():<7.3f} | {verdict} (>={threshold:.2f})")
+
+    # Max Hausdorff is reported for continuity but is a weak gate on thin
+    # structures — see compute_surface_metrics in src/segmentation/metrics.py.
+    n_hd_high = int((df["hausdorff_mm"] > 5).sum())
+    passing = df.apply(
+        lambda r: r["dice"] >= (0.90 if r["structure"] in bone else 0.75), axis=1)
+    print(f"\nMax HD > 5mm in {n_hd_high}/{len(df)} evaluations, of which "
+          f"{int((passing & (df['hausdorff_mm'] > 5)).sum())} still pass their Dice gate "
+          f"(corr with Dice: {df['hausdorff_mm'].corr(df['dice']):.2f}).")
 
     if missing:
         print(f"\nNote: {len(missing)} case(s) had no prediction on disk: "

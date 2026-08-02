@@ -18,6 +18,45 @@ As of `PIPELINE_VERSION` v3.2, the MRI-only pipeline meshes bone directly from C
 > 2. **Segmentation-Bound Fidelity:** Bone shape fidelity — including whether osteophytes or malalignment are captured — is bounded entirely by CartiMorph/nnU-Net segmentation quality on MRI, which has not been independently validated against CT for bone-boundary accuracy.
 > 3. **Mesh Sanity, Not Clinical Validation:** Batch QA (`scripts/run_batch_qa_mri.py`) checks mesh sanity only — vertex count and bounding-box size — across all 103 OAIZIB test cases (`bone_qa_oaizib_v32.json`, 0 failures). It does not verify anatomical or dimensional correctness against ground truth.
 
+### Cartilage Accuracy: Ceiling and Failure Mode
+
+**Reported cartilage Dice should be read against ~0.93–0.96, not 1.0.** The pipeline
+resamples segmentations to a 0.5 mm isotropic grid
+(`src/segmentation/run_mri_segmentation.py`). Passing the *ground truth itself*
+through that resampling and back — with no model involved — already costs:
+
+| | femur | tibia | femoral cart. | medial tib. cart. | lateral tib. cart. |
+|---|---|---|---|---|---|
+| Round-trip Dice | 0.995 | 0.995 | 0.956–0.967 | 0.934–0.958 | 0.941–0.964 |
+
+Bone is effectively unaffected; thin cartilage is not. So the 0.75 soft-tissue
+gate has materially less headroom above it than the raw figure suggests.
+
+> [!WARNING]
+> **Cartilage loss is systematically under-reported.** In full-thickness defects
+> the model labels bright residual tissue or joint fluid in the denuded region as
+> cartilage (cohort mean precision 0.835 medial / 0.841 lateral). Any
+> cartilage-derived output — denudation area, defect extent — will therefore
+> understate the loss. This does **not** affect implant sizing, which is measured
+> on bone at the resection surface.
+
+Maximum Hausdorff is a weak QA signal on these structures: across all 515
+evaluations, 90 exceed 5 mm and **87 of those still pass their Dice gate**
+(correlation with Dice: −0.40). `HD95` is reported alongside it for that reason,
+and is far tighter — cohort means 1.34–2.09 mm against 2.61–5.10 mm for the
+maximum. The extreme case, `oaizib_491`
+medial tibial cartilage at 12.18 mm, is **not a mislocalisation** — its ground
+truth is severed into two components (19.5% of volume detached) by a
+full-thickness defect, and the prediction bridges the gap, so distant voxels have
+no nearby ground truth to match. Its ASSD is 1.44 mm and no predicted voxel lies
+more than 3.57 mm from the tibial bone surface — less than a *passing* case
+(`oaizib_408`, 4.79 mm).
+
+Bone labels do not share this failure mode: 99th-percentile excursion outside
+ground truth is 0.35 mm (femur) and 0.36 mm (tibia), single connected component
+in 205 of 206 evaluations, and zero medial/lateral cartilage label confusion
+across all 103 cases.
+
 ### Longitudinal Axis and Resection Planning
 
 Resection planes, and the sizing measured on them, are referenced to a **limb-axis
