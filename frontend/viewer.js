@@ -35,9 +35,12 @@ class KneeViewport {
         
         this.kneeGroup = new THREE.Group();
         this.scene.add(this.kneeGroup);
-        
+
         this.combinedBox = new THREE.Box3();
         this.animating = false;
+        // part.file -> loaded Object3D, so individual structures can be hidden
+        // (needed to expose bone surfaces for implant placement).
+        this.partObjects = {};
     }
     
     startAnimation() {
@@ -106,14 +109,12 @@ class KneeViewport {
                 obj.traverse((child) => {
                     if (child.isMesh) {
                         child.material = material;
-                        if (isMRIBone) {
-                            child.userData.isMRIBone = true;
-                        }
                     }
                 });
                 
                 this.kneeGroup.add(obj);
-                
+                this.partObjects[part.file] = obj;
+
                 const box = new THREE.Box3().setFromObject(obj);
                 if (this.combinedBox.isEmpty()) {
                     this.combinedBox.copy(box);
@@ -129,14 +130,47 @@ class KneeViewport {
         });
     }
     
-    toggleBone() {
-        this.kneeGroup.traverse((child) => {
-            if (child.isMesh && child.userData.isMRIBone) {
-                child.visible = !child.visible;
-            }
-        });
+    setPartVisible(file, visible) {
+        const obj = this.partObjects[file];
+        if (!obj) return;
+        obj.visible = visible;
         this.renderer.render(this.scene, this.camera);
     }
+}
+
+// Per-part show/hide panel. Replaces the old all-or-nothing "Toggle Bone"
+// button so individual structures can be removed from the scene.
+function buildPartControls(viewport, parts, panel) {
+    const box = document.createElement('div');
+    box.className = 'part-controls';
+    box.style.cssText = 'position: absolute; top: 3.5rem; left: 1rem; z-index: 10;' +
+        'background: rgba(0,0,0,0.55); border-radius: 8px; padding: 0.5rem 0.75rem;' +
+        'font-size: 0.75rem; line-height: 1.6; backdrop-filter: blur(4px);';
+
+    parts.forEach(part => {
+        const id = `part-${viewport.side}-${part.file.replace(/\W/g, '')}`;
+        const row = document.createElement('label');
+        row.style.cssText = 'display: flex; align-items: center; gap: 0.4rem; cursor: pointer;';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = true;
+        cb.id = id;
+        cb.style.cursor = 'pointer';
+        cb.addEventListener('change', () => viewport.setPartVisible(part.file, cb.checked));
+
+        const swatch = document.createElement('span');
+        swatch.style.cssText = `width: 10px; height: 10px; border-radius: 2px;` +
+            `background: ${part.color}; display: inline-block; flex-shrink: 0;`;
+
+        const text = document.createElement('span');
+        text.textContent = part.label;
+
+        row.append(cb, swatch, text);
+        box.appendChild(row);
+    });
+
+    panel.appendChild(box);
 }
 
 // Global registry for resizing
@@ -160,8 +194,8 @@ window.initViewer = async function(taskId) {
     document.getElementById("left-canvas-container").innerHTML = '';
     document.getElementById("right-canvas-container").innerHTML = '';
     
-    // Remove old toggles
-    document.querySelectorAll('.bone-toggle-btn').forEach(btn => btn.remove());
+    // Remove old part-visibility panels
+    document.querySelectorAll('.part-controls').forEach(el => el.remove());
     
     try {
         const manifestRes = await fetch(`http://localhost:8000/api/manifest/${taskId}`);
@@ -192,22 +226,10 @@ window.initViewer = async function(taskId) {
             document.getElementById("reset-left-btn").onclick = () => vpLeft.resetView();
             document.getElementById("reset-right-btn").onclick = () => vpRight.resetView();
             
-            if (manifest.modality === 'MRI') {
-                const btnLeft = document.createElement('button');
-                btnLeft.className = 'btn-secondary btn-sm bone-toggle-btn';
-                btnLeft.style.cssText = 'position: absolute; top: 1rem; left: 6rem; z-index: 10;';
-                btnLeft.innerText = 'Toggle Bone';
-                btnLeft.onclick = () => vpLeft.toggleBone();
-                leftPanel.appendChild(btnLeft);
-                
-                const btnRight = document.createElement('button');
-                btnRight.className = 'btn-secondary btn-sm bone-toggle-btn';
-                btnRight.style.cssText = 'position: absolute; top: 1rem; left: 6rem; z-index: 10;';
-                btnRight.innerText = 'Toggle Bone';
-                btnRight.onclick = () => vpRight.toggleBone();
-                rightPanel.appendChild(btnRight);
-            }
-            
+            buildPartControls(vpLeft, leftParts, leftPanel);
+            buildPartControls(vpRight, rightParts, rightPanel);
+
+
         } else {
             // Unilateral
             dashboardSection.classList.remove("bilateral");
@@ -219,15 +241,8 @@ window.initViewer = async function(taskId) {
             vp.loadParts(manifest.parts);
             vp.startAnimation();
             
-            if (manifest.modality === 'MRI') {
-                const btn = document.createElement('button');
-                btn.className = 'btn-secondary btn-sm bone-toggle-btn';
-                btn.style.cssText = 'position: absolute; top: 1rem; left: 1rem; z-index: 10;';
-                btn.innerText = 'Toggle Bone';
-                btn.onclick = () => vp.toggleBone();
-                singlePanel.appendChild(btn);
-            }
-            
+            buildPartControls(vp, manifest.parts, singlePanel);
+
             window.activeViewports.push(vp);
         }
         

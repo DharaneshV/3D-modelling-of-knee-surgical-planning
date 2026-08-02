@@ -1,6 +1,9 @@
 let currentTaskId = null;
 let currentPlane = 'axial';
 let volumeInfo = null;
+// Explicit flag rather than a sentinel slider value — 0 is a legitimate MRI
+// intensity, so "wc === 0 means auto" silently broke manual windowing on MR.
+let autoWindow = true;
 
 // DOM Elements
 const sliceImage = document.getElementById('slice-image');
@@ -26,16 +29,42 @@ function initSliceViewer(taskId) {
         })
         .then(data => {
             volumeInfo = data;
-            
+
             // Setup slider for initial plane
             updateSliderForPlane(currentPlane);
-            
+            configureWindowSliders();
+
             // Auto-load mid-volume axial slice
             const midIndex = Math.floor(volumeInfo.num_slices[currentPlane] / 2);
             sliceSlider.value = midIndex;
             updateSliceImage();
         })
         .catch(err => console.error("Failed to init slice viewer:", err));
+}
+
+function configureWindowSliders() {
+    // Scale the window/level controls to the volume's real intensity range.
+    // CT is in Hounsfield units, but MRI has no standardised scale, so fixed
+    // HU bounds leave almost the entire slider travel doing nothing on MR.
+    if (!volumeInfo || !volumeInfo.intensity) return;
+
+    const { min, max, p1, p99 } = volumeInfo.intensity;
+    const span = Math.max(p99 - p1, 1);
+    const step = Math.max(Math.round(span / 200), 1);
+
+    wcSlider.min = Math.floor(min);
+    wcSlider.max = Math.ceil(max);
+    wcSlider.step = step;
+    wcSlider.value = Math.round(p1 + span / 2);
+
+    wwSlider.min = step;
+    wwSlider.max = Math.ceil(span * 2);
+    wwSlider.step = step;
+    wwSlider.value = Math.round(span);
+
+    autoWindow = true;
+    wcLabel.textContent = 'Auto';
+    wwLabel.textContent = 'Auto';
 }
 
 function updateSliderForPlane(plane) {
@@ -55,15 +84,12 @@ function updateSliceImage() {
     const index = sliceSlider.value;
     sliceLabel.textContent = `${index}/${volumeInfo.num_slices[currentPlane] - 1}`;
     
-    // Get window values (0 means Auto on the backend)
-    const wc = wcSlider.value;
-    const ww = wwSlider.value;
-    
+    // Omitting wc/ww entirely tells the backend to auto-window this slice.
     let url = `${SLICE_API_BASE}/slices/${currentTaskId}/${currentPlane}/${index}`;
-    // If not default (0), append query params
-    if (wc != 0) url += `?wc=${wc}&ww=${ww}`;
-    else if (ww != 1000) url += `?ww=${ww}`; // Just in case
-    
+    if (!autoWindow) {
+        url += `?wc=${wcSlider.value}&ww=${wwSlider.value}`;
+    }
+
     sliceImage.src = url;
 }
 
@@ -100,11 +126,23 @@ function debouncedUpdate() {
 }
 
 wcSlider.addEventListener('input', (e) => {
-    wcLabel.textContent = e.target.value == 0 ? "Auto" : e.target.value;
+    autoWindow = false;
+    wcLabel.textContent = e.target.value;
+    wwLabel.textContent = wwSlider.value;
     debouncedUpdate();
 });
 
 wwSlider.addEventListener('input', (e) => {
-    wwLabel.textContent = e.target.value == 1000 && wcSlider.value == 0 ? "Auto" : e.target.value;
+    autoWindow = false;
+    wwLabel.textContent = e.target.value;
+    wcLabel.textContent = wcSlider.value;
     debouncedUpdate();
 });
+
+const autoWindowBtn = document.getElementById('auto-window-btn');
+if (autoWindowBtn) {
+    autoWindowBtn.addEventListener('click', () => {
+        configureWindowSliders();
+        updateSliceImage();
+    });
+}
