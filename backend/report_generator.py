@@ -18,23 +18,48 @@ try:
 except ImportError:
     HAS_SITK = False
 
+# A PCA axis is only trusted if it agrees with the anatomical reference to
+# within ~45 degrees. Below that the principal component has locked onto a
+# transverse dimension rather than the shaft.
+AXIS_AGREEMENT_THRESHOLD = 0.7
+
+
 def calculate_anatomic_axis(vertices, reference_dir=None):
-    """Compute the anatomical axis vector using PCA."""
+    """
+    Compute a bone's longitudinal axis.
+
+    PCA recovers the shaft direction only when the bone is imaged long enough to
+    be its own longest dimension. On a knee-only MRI FOV it is not: the tibia is
+    roughly 60mm of length against a 73mm-wide plateau, so the principal
+    component comes back mediolateral and the "long axis" is transverse.
+
+    When reference_dir is supplied (the femur->tibia centroid vector is a stable
+    limb-axis proxy) the PCA result is accepted only if it broadly agrees with
+    it; otherwise the reference direction is used instead.
+
+    Returns:
+        (axis, pca_trusted) — pca_trusted is False when the PCA result was
+        rejected and reference_dir was substituted.
+    """
     centered = vertices - np.mean(vertices, axis=0)
     cov = np.cov(centered, rowvar=False)
     eigvals, eigvecs = np.linalg.eigh(cov)
     # The primary axis corresponds to the eigenvector with the largest eigenvalue
     primary_axis = eigvecs[:, np.argmax(eigvals)]
-    
-    if reference_dir is not None:
-        if np.dot(primary_axis, reference_dir) < 0:
-            primary_axis = -primary_axis
-    else:
+
+    if reference_dir is None:
         # Fallback to positive Z if no reference is given
         if primary_axis[2] < 0:
             primary_axis = -primary_axis
-            
-    return primary_axis
+        return primary_axis, True
+
+    if np.dot(primary_axis, reference_dir) < 0:
+        primary_axis = -primary_axis
+
+    if np.dot(primary_axis, reference_dir) < AXIS_AGREEMENT_THRESHOLD:
+        return reference_dir, False
+
+    return primary_axis, True
 
 def get_roi_sizing(vertices, long_axis, is_femur=True, side='unknown'):
     # Project all vertices onto the longitudinal axis to find min/max
@@ -137,17 +162,25 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
             if np.linalg.norm(up_vector) > 0:
                 up_vector = up_vector / np.linalg.norm(up_vector)
             
-            # Anatomic Axis Angle via PCA (3D)
-            f_axis = calculate_anatomic_axis(femur.vertices, reference_dir=up_vector)
-            t_axis = calculate_anatomic_axis(tibia.vertices, reference_dir=up_vector)
-            
+            f_axis, f_pca_ok = calculate_anatomic_axis(femur.vertices, reference_dir=up_vector)
+            t_axis, t_pca_ok = calculate_anatomic_axis(tibia.vertices, reference_dir=up_vector)
+
             # Verify symmetry/consistency (log only)
-            print(f"DEBUG [{side}]: Femur primary axis: {f_axis}")
-            print(f"DEBUG [{side}]: Tibia primary axis: {t_axis}")
-            
-            cos_theta = np.dot(f_axis, t_axis) / (np.linalg.norm(f_axis) * np.linalg.norm(t_axis))
-            cos_theta = np.clip(cos_theta, -1.0, 1.0)
-            metrics["alignment_angle"] = round(float(np.degrees(np.arccos(cos_theta))), 1)
+            print(f"DEBUG [{side}]: Femur primary axis: {f_axis} (pca_trusted={f_pca_ok})")
+            print(f"DEBUG [{side}]: Tibia primary axis: {t_axis} (pca_trusted={t_pca_ok})")
+
+            # The angle between the two shafts is only meaningful if each shaft
+            # direction was actually recovered. Where PCA was rejected, both
+            # bones fall back to the same limb-axis proxy and the angle collapses
+            # to 0 degrees — a fabricated number, not a measurement. A knee-only
+            # FOV has no hip or ankle centre, so there is no mechanical axis to
+            # fall back on either.
+            if f_pca_ok and t_pca_ok:
+                cos_theta = np.dot(f_axis, t_axis) / (np.linalg.norm(f_axis) * np.linalg.norm(t_axis))
+                cos_theta = np.clip(cos_theta, -1.0, 1.0)
+                metrics["alignment_angle"] = round(float(np.degrees(np.arccos(cos_theta))), 1)
+            else:
+                metrics["alignment_angle"] = "N/A - Requires full-limb imaging"
             
             # Sizing (Bounding Box spreads) via PCA on proportional ROI
             metrics["femur_ml"], metrics["femur_ap"] = get_roi_sizing(femur.vertices, f_axis, is_femur=True, side=side)
@@ -275,7 +308,12 @@ def build_metrics_list(metrics, modality):
         {
             "name": "Anatomic Axis Angle",
             "value": format_val(metrics['alignment_angle'], "°"),
-            "caveat": "Calculated via PCA of bone shafts" if not isinstance(metrics['alignment_angle'], str) else "Required mesh file missing"
+            "caveat": (
+                "Calculated via PCA of bone shafts"
+                if not isinstance(metrics['alignment_angle'], str)
+                else "Shaft axes not recoverable from this field of view; "
+                     "a true mechanical axis requires hip-to-ankle imaging"
+            )
         },
         {
             "name": "Femur ML Width / AP Depth",
