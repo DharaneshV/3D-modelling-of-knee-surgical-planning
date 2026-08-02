@@ -387,4 +387,15 @@ document.addEventListener('DOMContentLoaded', () => {
             window.initViewer(taskId);
         }
     }
+
+    // ?task=<id> opens an already-processed case directly. Without it the only
+    // route to the dashboard is uploading a scan, which is impractical from a
+    // phone — and a phone is the only place AR actually runs.
+    const requestedTask = new URLSearchParams(window.location.search).get('task');
+    if (requestedTask) {
+        uploadSection.style.display = 'none';
+        dashboardSection.style.display = 'grid';
+        if (window.initSliceViewer) initSliceViewer(requestedTask);
+        loadDashboard(requestedTask);
+    }
 });
