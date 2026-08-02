@@ -93,7 +93,7 @@ class KneeViewport {
         let loadedCount = 0;
         
         parts.forEach(part => {
-            const meshUrl = `http://localhost:8000/api/mesh/${this.taskId}/${part.file}`;
+            const meshUrl = `/api/mesh/${this.taskId}/${part.file}`;
             loader.load(meshUrl, (obj) => {
                 const isMRIBone = this.modality === 'MRI' && (part.file.includes('femur') || part.file.includes('tibia')) && !part.file.includes('cartilage');
                 
@@ -173,7 +173,7 @@ class KneeViewport {
         if (existing) return;
 
         new THREE.OBJLoader().load(
-            `http://localhost:8000/api/mesh/${this.taskId}/${file}`,
+            `/api/mesh/${this.taskId}/${file}`,
             (obj) => {
                 // Low metalness on purpose. MeshStandardMaterial metals have no
                 // diffuse term, so without an environment map to reflect a highly
@@ -204,7 +204,7 @@ class KneeViewport {
         if (existing.userData.showing === target) return;
 
         const loader = new THREE.OBJLoader();
-        loader.load(`http://localhost:8000/api/mesh/${this.taskId}/${target}`, (obj) => {
+        loader.load(`/api/mesh/${this.taskId}/${target}`, (obj) => {
             let material = null;
             existing.traverse((c) => { if (c.isMesh && !material) material = c.material; });
 
@@ -280,7 +280,7 @@ window.initViewer = async function(taskId) {
     document.querySelectorAll('.part-controls').forEach(el => el.remove());
     
     try {
-        const manifestRes = await fetch(`http://localhost:8000/api/manifest/${taskId}`);
+        const manifestRes = await fetch(`/api/manifest/${taskId}`);
         if (!manifestRes.ok) throw new Error("Failed to load manifest");
         const manifest = await manifestRes.json();
         

@@ -1,4 +1,7 @@
-const API_BASE = 'http://localhost:8000/api';
+// Same-origin: the page is served by the backend, so the API is a relative
+// path. A hardcoded host breaks the moment the page is opened from anything
+// other than the machine running the server — a phone, most obviously.
+const API_BASE = '/api';
 
 document.addEventListener('DOMContentLoaded', () => {
     const dropZone = document.getElementById('drop-zone');

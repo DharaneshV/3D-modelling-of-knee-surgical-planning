@@ -502,3 +502,17 @@ async def get_report_data(task_id: str):
         report_data = json.load(f)
         
     return JSONResponse(content=report_data)
+
+
+# Serve the frontend from this same app. Mounted last so it does not shadow the
+# /api routes above — Starlette matches in definition order.
+#
+# One origin matters for phone access: the frontend used to hardcode
+# localhost:8000, which on a phone means the phone itself, so every API call
+# failed. Same-origin also means a single port to expose, which is what makes
+# an HTTPS tunnel practical — and WebXR will not start without HTTPS.
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+if _FRONTEND_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")

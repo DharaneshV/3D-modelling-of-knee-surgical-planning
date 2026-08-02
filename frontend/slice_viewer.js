@@ -16,7 +16,7 @@ const wwLabel = document.getElementById('ww-label');
 const planeBtns = document.querySelectorAll('.plane-btn');
 
 // Use the same API base as script.js
-const SLICE_API_BASE = 'http://localhost:8000/api';
+const SLICE_API_BASE = '/api';
 
 function initSliceViewer(taskId) {
     currentTaskId = taskId;
