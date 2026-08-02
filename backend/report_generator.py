@@ -158,8 +158,11 @@ def calculate_side_metrics(mesh_dir: Path, side: str, laterality_summary: dict, 
     
     if f_mesh_path.exists() and t_mesh_path.exists():
         try:
-            femur = trimesh.load(str(f_mesh_path))
-            tibia = trimesh.load(str(t_mesh_path))
+            # process=False matters: trimesh's default merges coincident vertices,
+            # which would undo the vertex split that makes these meshes manifold
+            # (see src/mesh/topology.py) and put volume reporting back to None.
+            femur = trimesh.load(str(f_mesh_path), process=False)
+            tibia = trimesh.load(str(t_mesh_path), process=False)
             
             f_centroid = np.mean(femur.vertices, axis=0)
             t_centroid = np.mean(tibia.vertices, axis=0)
