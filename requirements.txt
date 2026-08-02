@@ -15,3 +15,6 @@ python-multipart
 reportlab
 pymeshlab
 trimesh
+shapely
+rtree
+mapbox-earcut
