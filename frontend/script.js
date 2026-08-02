@@ -110,7 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
             vp.swapPart('femur_unknown.obj', show ? 'femur_resected.obj' : null);
             vp.swapPart('tibia_unknown.obj', show ? 'tibia_resected.obj' : null);
             vp.setBoneOpaque(show);
-            vp.setExtraPart('tibial_tray.obj', show ? '#c0c8d8' : null);
+            vp.setExtraPart('tibial_tray.obj', show ? '#c8d0dc' : null);
+            vp.setExtraPart('femoral_component.obj', show ? '#c8d0dc' : null);
         });
 
         // Articular cartilage sits on the surfaces being cut, so a resection
@@ -157,21 +158,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     `<td>${r.cut_surface.ap_mm} mm</td><td>${removed}</td>`;
                 body.appendChild(tr);
             });
-            const imp = data.implant;
-            if (imp) {
+            const implants = data.implants || {};
+            const labels = { femoral: 'Femoral component', tibial: 'Tibial tray' };
+            Object.entries(implants).forEach(([kind, imp]) => {
+                // Each component reports the number that governs its own risk:
+                // the tray's is overhang, the femur's is AP headroom against
+                // notching the anterior cortex.
+                const note = kind === 'tibial'
+                    ? `${imp.coverage_pct}% cover` +
+                      (imp.max_overhang_mm != null ? `, ${imp.max_overhang_mm} mm overhang` : '')
+                    : `${imp.ap_margin_mm} mm AP margin` +
+                      (imp.ml_overhang ? ', ML overhangs' : '');
                 const tr = document.createElement('tr');
-                const overhang = imp.max_overhang_mm != null
-                    ? `${imp.max_overhang_mm} mm overhang` : 'overhang n/a';
-                tr.innerHTML = `<td><strong>Tray size ${imp.size}</strong>` +
+                tr.innerHTML = `<td><strong>${labels[kind]} size ${imp.size}</strong>` +
                     `${imp.fit === 'fitted' ? '' : ' <em>(undersize)</em>'}</td>` +
-                    `<td>${imp.ml_mm} mm</td><td>${imp.ap_mm} mm</td>` +
-                    `<td>${imp.coverage_pct}% cover, ${overhang}</td>`;
+                    `<td>${imp.ml_mm} mm</td><td>${imp.ap_mm} mm</td><td>${note}</td>`;
                 body.appendChild(tr);
-            }
+            });
 
             document.getElementById('resection-caveat').textContent = data.axis_note +
                 ' Cut-surface dimensions are component sizing references only.' +
-                (imp ? ' ' + data.implant_note : '');
+                (Object.keys(implants).length ? ' ' + data.implant_note : '');
             document.getElementById('resection-results').style.display = 'block';
 
             showResected(true);
