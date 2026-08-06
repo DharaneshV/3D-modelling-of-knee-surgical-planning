@@ -15,28 +15,81 @@ import shutil
 
 app = FastAPI()
 
-# Allow CORS for local frontend testing
+# Same-origin only. The frontend is served by this app (see the StaticFiles
+# mount at the bottom of this file), so no page legitimately needs to call this
+# API cross-origin. allow_origins=["*"] with allow_credentials=True was also an
+# invalid combination per the Fetch spec (browsers reject a wildcard origin
+# once credentials are involved) — a leftover from an earlier two-port dev
+# setup (frontend on :8090, backend on :8000) that no longer exists. Same-origin
+# requests are never subject to CORS regardless of this config, so the normal
+# app flow (including via the LAN IP or a tunnel domain) is unaffected.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _validate_task_id(task_id: str) -> None:
+    """
+    Task IDs are our own uuid4() tokens (backend/main.py mints them with
+    str(uuid.uuid4())). Reject anything else before it reaches a path join,
+    rather than trusting every downstream MESHES_DIR/UPLOADS_DIR lookup to fail
+    safely on a malformed value.
+    """
+    try:
+        uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task_id")
+
+
+# Generous enough for a full CT/MRI series (typically tens to low hundreds of
+# MB) while stopping an unbounded upload from exhausting disk or, since the
+# old code read the whole body into memory before writing, RAM.
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+
 
 @app.post("/api/process")
 async def process_upload(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
-        
+
+    # .name strips every directory component (forward slash, backslash, ..,
+    # drive letters, UNC prefixes — verified on all of those on this Windows
+    # deployment) leaving only the final path segment. file.filename is fully
+    # attacker-controlled by the multipart client; unsanitized, a filename
+    # like "../../../backend/main.py" resolved to a write straight into the
+    # live source tree, and StaticFiles serves frontend/ from this same app.
+    safe_filename = Path(file.filename).name
+    if not safe_filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
     task_id = str(uuid.uuid4())
-    file_path = UPLOADS_DIR / f"{task_id}_{file.filename}"
-    
-    # Save uploaded file
-    with open(file_path, "wb") as buffer:
-        content = await file.read()
-        buffer.write(content)
-        
+    file_path = UPLOADS_DIR / f"{task_id}_{safe_filename}"
+
+    # Stream in bounded chunks rather than buffering the whole upload into
+    # memory with one read(), and enforce the size cap while writing so a
+    # too-large upload is rejected (and its partial file removed) instead of
+    # silently consuming unbounded disk.
+    try:
+        size = 0
+        with open(file_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit")
+                buffer.write(chunk)
+    except HTTPException:
+        file_path.unlink(missing_ok=True)
+        raise
+    except OSError as e:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Failed to save upload") from e
+
     # Run fast modality detection immediately
     mod_result = detect_modality(str(file_path))
     
@@ -116,6 +169,7 @@ async def process_upload(file: UploadFile = File(...)):
 
 @app.get("/api/status/{task_id}")
 async def get_status(task_id: str):
+    _validate_task_id(task_id)
     status_path = get_status_path(task_id)
     if not status_path.exists():
         raise HTTPException(status_code=404, detail="Task not found")
@@ -127,6 +181,7 @@ async def get_status(task_id: str):
 
 @app.get("/api/manifest/{task_id}")
 async def get_manifest(task_id: str):
+    _validate_task_id(task_id)
     manifest_path = MESHES_DIR / task_id / "manifest.json"
     if not manifest_path.exists():
         raise HTTPException(status_code=404, detail="Manifest not found or task not complete")
@@ -138,6 +193,7 @@ async def get_manifest(task_id: str):
 
 @app.get("/api/results/{task_id}")
 async def get_results(task_id: str):
+    _validate_task_id(task_id)
     json_path = MESHES_DIR / task_id / "report.json"
     if not json_path.exists():
         raise HTTPException(status_code=404, detail="Report not ready or missing")
@@ -172,6 +228,7 @@ async def get_results(task_id: str):
 
 @app.get("/api/mesh/{task_id}/{file_name}")
 async def get_mesh(task_id: str, file_name: str):
+    _validate_task_id(task_id)
     # Security: check against manifest whitelist
     manifest_path = MESHES_DIR / task_id / "manifest.json"
     if not manifest_path.exists():
@@ -196,6 +253,7 @@ async def get_mesh(task_id: str, file_name: str):
 
 @app.get("/api/ar/{task_id}")
 async def get_ar_glb(task_id: str):
+    _validate_task_id(task_id)
     manifest_path = MESHES_DIR / task_id / "manifest.json"
     if not manifest_path.exists():
         raise HTTPException(status_code=404, detail="Manifest not found")
@@ -238,6 +296,8 @@ async def resect_bones(task_id: str,
     surgeon would size a component from. Only the MRI track is supported: the
     label names below are CartiMorph's.
     """
+    _validate_task_id(task_id)
+
     import trimesh
     from src.mesh.resection import limb_axis, plan_resection
     from src.mesh.implant import fit_femoral_component, fit_tibial_tray
@@ -339,6 +399,7 @@ async def resect_bones(task_id: str,
 
 @app.get("/api/volume-info/{task_id}")
 async def get_volume_info(task_id: str):
+    _validate_task_id(task_id)
     # Find the original scan file
     files = glob.glob(str(UPLOADS_DIR / f"{task_id}_*"))
     if not files:
@@ -384,6 +445,7 @@ async def get_volume_info(task_id: str):
 
 @app.get("/api/slices/{task_id}/{plane}/{index}")
 async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: float = None):
+    _validate_task_id(task_id)
     if plane not in ["axial", "coronal", "sagittal"]:
         raise HTTPException(status_code=400, detail="Plane must be axial, coronal, or sagittal")
         
@@ -460,6 +522,7 @@ async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: 
 
 @app.get("/api/report/{task_id}/pdf")
 async def get_report(task_id: str):
+    _validate_task_id(task_id)
     status_path = get_status_path(task_id)
     if not status_path.exists():
         raise HTTPException(status_code=404, detail="Task not found")
@@ -481,6 +544,7 @@ async def get_report(task_id: str):
 
 @app.get("/api/report/{task_id}/data")
 async def get_report_data(task_id: str):
+    _validate_task_id(task_id)
     status_path = get_status_path(task_id)
     if not status_path.exists():
         raise HTTPException(status_code=404, detail="Task not found")

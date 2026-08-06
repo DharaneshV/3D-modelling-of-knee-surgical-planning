@@ -11,7 +11,9 @@ from backend.pipeline_runner import UPLOADS_DIR, TASKS_DIR
 
 client = TestClient(app)
 
-TASK_ID = "test_task_id_999"
+# Must be a real UUID: /api/* routes reject anything else as a malformed
+# task_id (see _validate_task_id in backend/main.py).
+TASK_ID = "12345678-1234-5678-1234-567812345678"
 
 @pytest.fixture(autouse=True)
 def setup_teardown():
@@ -70,5 +72,12 @@ def test_slice_endpoint_invalid_plane():
     assert res.status_code == 400
     
 def test_slice_endpoint_invalid_task():
-    res = client.get("/api/slices/DOES_NOT_EXIST_123/axial/15")
+    # Well-formed UUID, but no such task exists on disk.
+    res = client.get("/api/slices/00000000-0000-0000-0000-000000000000/axial/15")
     assert res.status_code == 404
+
+def test_slice_endpoint_malformed_task_id():
+    # Not a UUID at all — must be rejected before any path is even built from
+    # it, not left to whichever downstream lookup happens to fail safely.
+    res = client.get("/api/slices/DOES_NOT_EXIST_123/axial/15")
+    assert res.status_code == 400
