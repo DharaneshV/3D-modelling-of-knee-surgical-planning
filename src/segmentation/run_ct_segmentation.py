@@ -98,7 +98,17 @@ def _run_totalsegmentator(nifti_path: str, out_dir: str, task: str,
         cmd += ["-rs"] + roi_subset
 
     logger.info(f"  Running TotalSegmentator task='{task}'  roi_subset={roi_subset}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Generous, not tight: a GPU/driver hang here used to block forever with no
+    # recovery. This exists to fail loudly after a long wait, not to catch
+    # merely-slow-but-healthy runs.
+    TOTALSEGMENTATOR_TIMEOUT_S = 900
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=TOTALSEGMENTATOR_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"TotalSegmentator CLI timed out after {TOTALSEGMENTATOR_TIMEOUT_S}s "
+            f"(task={task}, possible GPU/driver hang)")
 
     if result.returncode != 0:
         raise RuntimeError(

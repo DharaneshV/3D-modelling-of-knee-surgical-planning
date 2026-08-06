@@ -4,12 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import uuid
 import json
+import threading
 from pathlib import Path
 import glob
 import numpy as np
 import SimpleITK as sitk
-from fastapi.responses import Response, JSONResponse, FileResponse
-from backend.pipeline_runner import run_pipeline_async, get_status_path, update_status, check_cache, UPLOADS_DIR, MESHES_DIR, TASKS_DIR
+from backend.pipeline_runner import (
+    run_pipeline_async, get_status_path, update_status, check_cache,
+    UPLOADS_DIR, MESHES_DIR, TASKS_DIR, REPORT_TIMEOUT_S, atomic_write_json,
+)
 from backend.modality_detector import detect_modality
 import shutil
 
@@ -43,6 +46,84 @@ def _validate_task_id(task_id: str) -> None:
         uuid.UUID(task_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid task_id")
+
+
+# Per-task locks for /api/resect. Two concurrent calls for the SAME task_id
+# both write tibia_resected.obj, femur_resected.obj, tibial_tray.obj,
+# femoral_component.obj and the same {task_id}_resected_ar.glb path — trimesh's
+# .export() writes straight to the destination with no temp-file-then-rename,
+# so a concurrent reader could observe a torn file, and the two responses'
+# JSON could disagree with whatever actually landed on disk.
+_resect_locks: dict[str, threading.Lock] = {}
+_resect_locks_guard = threading.Lock()
+
+
+def _acquire_resect_lock(task_id: str) -> bool:
+    """
+    True if this call now owns the lock for task_id (must release it when
+    done); False if another resection for this task is already in flight.
+
+    Deliberately non-blocking: queueing a second caller behind an already
+    slow (~24s) resection would just reproduce a milder version of the
+    problem this exists to fix — a client left waiting with no feedback — so
+    a concurrent call is rejected outright with 409 rather than made to wait.
+    """
+    with _resect_locks_guard:
+        lock = _resect_locks.setdefault(task_id, threading.Lock())
+    return lock.acquire(blocking=False)
+
+
+def _release_resect_lock(task_id: str) -> None:
+    _resect_locks[task_id].release()
+
+
+def _require_complete_status(task_id: str) -> dict:
+    """
+    Shared by every route that only makes sense once a task's pipeline has
+    finished (currently the two /api/report/* routes, which duplicated this
+    exact "load status.json, 404/500/409" block near-verbatim). Also the one
+    place that needs to handle a torn read on status.json — get_status_path's
+    file is now written atomically (see atomic_write_json in
+    pipeline_runner.py), so a reader can no longer observe a truncated write,
+    but a genuinely corrupt or unreadable file is still handled explicitly
+    rather than raising an unhandled 500 from json.load.
+    """
+    status_path = get_status_path(task_id)
+    if not status_path.exists():
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    try:
+        with open(status_path, "r") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        raise HTTPException(status_code=500, detail="Task status is unreadable") from e
+
+    if data.get("state") == "failed":
+        raise HTTPException(status_code=500, detail=f"Pipeline failed: {data.get('reason', 'Unknown error')}")
+
+    if data.get("state") != "complete":
+        raise HTTPException(status_code=409, detail="Report is not ready yet (task not complete)")
+
+    return data
+
+
+def _atomic_export(mesh, path: Path) -> None:
+    """
+    trimesh's mesh.export() writes straight to the destination path with no
+    temp-file-then-rename, so a GET on /api/mesh/{task_id}/{file} concurrent
+    with a resect call (the per-task lock only serializes writers against each
+    other, not readers) could observe a truncated .obj mid-write. Export to a
+    sibling temp file and os.replace() into place instead, same pattern as
+    atomic_write_json in pipeline_runner.py.
+
+    The uniqueness token goes before the extension, not after: trimesh infers
+    the export format from the file suffix, so a temp name like
+    "tibia_resected.obj.tmp1234" (no trailing .obj) makes export() fail with
+    "exporter not available" — confirmed live before switching to this order.
+    """
+    tmp_path = path.with_name(f"{path.stem}.tmp{os.getpid()}{path.suffix}")
+    mesh.export(str(tmp_path))
+    os.replace(tmp_path, path)
 
 
 # Generous enough for a full CT/MRI series (typically tens to low hundreds of
@@ -122,8 +203,7 @@ async def process_upload(file: UploadFile = File(...)):
                     
                 # Update task_id inside the manifest
                 manifest["task_id"] = task_id
-                with open(manifest_path, "w") as f:
-                    json.dump(manifest, f, indent=4)
+                atomic_write_json(manifest_path, manifest)
             
             # Decouple report generation from cache: always regenerate the report on a cache hit
             update_status(task_id, "generating_report", modality=mod_result["modality"], manifest=manifest)
@@ -139,7 +219,8 @@ async def process_upload(file: UploadFile = File(...)):
                         python_exe, "backend/report_generator.py",
                         task_id, mod_result["modality"], str(file_path), str(new_mesh_dir), str(mask_path)
                     ]
-                    res = subprocess.run(report_cmd, capture_output=True, text=True)
+                    res = subprocess.run(report_cmd, capture_output=True, text=True,
+                                         timeout=REPORT_TIMEOUT_S)
                     if res.returncode != 0:
                         raise Exception(res.stderr.strip())
                     update_status(task_id, "complete", modality=mod_result["modality"], manifest=manifest)
@@ -220,8 +301,15 @@ async def get_results(task_id: str):
             pass
             
     return {
-        "dice_score": 0.94,
-        "hausdorff_distance": 1.14,
+        # Segmentation accuracy needs ground truth to compare against, which a
+        # live upload does not have — these were previously hardcoded to
+        # 0.94/1.14 regardless of the actual case, a fabricated-looking number
+        # for a tool that otherwise refuses to publish clinical figures it
+        # hasn't earned. Accuracy is only knowable in aggregate, from the
+        # offline OAI-ZIB validation (results/dice_scores_summary.csv,
+        # summarized in MODEL_CARD.md) — not as a per-case number.
+        "dice_score": None,
+        "hausdorff_distance": None,
         "joint_space_width_mm": jsw,
         "mechanical_axis_angle": alignment
     }
@@ -284,17 +372,26 @@ def _load_volume(task_id: str, file_path: str) -> sitk.Image:
 
 
 @app.get("/api/resect/{task_id}")
-async def resect_bones(task_id: str,
-                       femur_depth_mm: float = 9.0,
-                       tibia_depth_mm: float = 10.0,
-                       varus_deg: float = 0.0,
-                       slope_deg: float = 0.0):
+def resect_bones(task_id: str,
+                 femur_depth_mm: float = 9.0,
+                 tibia_depth_mm: float = 10.0,
+                 varus_deg: float = 0.0,
+                 slope_deg: float = 0.0):
     """
     Plan the distal-femoral and proximal-tibial resections for a task.
 
     Writes the cut meshes alongside the originals and returns the measurements a
     surgeon would size a component from. Only the MRI track is supported: the
     label names below are CartiMorph's.
+
+    Deliberately a plain `def`, not `async def`: the body below is pure
+    synchronous CPU work (trimesh/pyvista, no I/O to await), and an `async def`
+    with no `await` inside runs directly on the single event loop, blocking
+    EVERY other request on the server — not just other resect calls — for the
+    full ~24s duration. Verified directly: with this handler still `async def`,
+    a concurrent /api/manifest call for a different, unrelated task queued
+    behind it and timed out entirely. A plain `def` tells Starlette to run it
+    in its threadpool instead, so other requests are served concurrently.
     """
     _validate_task_id(task_id)
 
@@ -318,6 +415,13 @@ async def resect_bones(task_id: str,
         raise HTTPException(status_code=400,
                             detail="Angulation must be within +/-15 degrees")
 
+    # Now in the threadpool, a second call for this same task_id could
+    # genuinely run concurrently with this one in a different worker thread —
+    # guard the file-writing section against that.
+    if not _acquire_resect_lock(task_id):
+        raise HTTPException(status_code=409,
+                            detail="A resection is already being planned for this task")
+
     try:
         femur = trimesh.load_mesh(str(femur_path), process=False)
         tibia = trimesh.load_mesh(str(tibia_path), process=False)
@@ -333,14 +437,14 @@ async def resect_bones(task_id: str,
         tibia_plan = plan_resection(tibia, axis, "tibia", depth_mm=tibia_depth_mm,
                                     varus_deg=varus_deg, slope_deg=slope_deg)
         tibia_cut = tibia_plan.pop("mesh")
-        tibia_cut.export(str(task_dir / "tibia_resected.obj"))
+        _atomic_export(tibia_cut, task_dir / "tibia_resected.obj")
         results["tibia"] = tibia_plan
         ar_parts["tibia_unknown"] = tibia_cut
 
         try:
             fit = fit_tibial_tray(tibia_plan, tibia_cut)
             tray = fit.pop("mesh")
-            tray.export(str(task_dir / "tibial_tray.obj"))
+            _atomic_export(tray, task_dir / "tibial_tray.obj")
             ar_parts["tibial_tray"] = tray
             implants["tibial"] = fit
         except Exception as e:
@@ -353,8 +457,8 @@ async def resect_bones(task_id: str,
             fem = fit_femoral_component(femur, axis, distal_depth_mm=femur_depth_mm)
             femur_cut = fem.pop("prepared_femur")
             component = fem.pop("mesh")
-            femur_cut.export(str(task_dir / "femur_resected.obj"))
-            component.export(str(task_dir / "femoral_component.obj"))
+            _atomic_export(femur_cut, task_dir / "femur_resected.obj")
+            _atomic_export(component, task_dir / "femoral_component.obj")
             ar_parts["femur_unknown"] = femur_cut
             ar_parts["femoral_component"] = component
             implants["femoral"] = fem
@@ -369,7 +473,7 @@ async def resect_bones(task_id: str,
             femur_plan = plan_resection(femur, axis, "femur", depth_mm=femur_depth_mm,
                                         varus_deg=varus_deg, slope_deg=slope_deg)
             femur_cut = femur_plan.pop("mesh")
-            femur_cut.export(str(task_dir / "femur_resected.obj"))
+            _atomic_export(femur_cut, task_dir / "femur_resected.obj")
             ar_parts["femur_unknown"] = femur_cut
             results["femur"] = femur_plan
 
@@ -395,6 +499,8 @@ async def resect_bones(task_id: str,
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Resection failed: {str(e)}")
+    finally:
+        _release_resect_lock(task_id)
 
 
 @app.get("/api/volume-info/{task_id}")
@@ -523,41 +629,19 @@ async def get_slice(task_id: str, plane: str, index: int, wc: float = None, ww: 
 @app.get("/api/report/{task_id}/pdf")
 async def get_report(task_id: str):
     _validate_task_id(task_id)
-    status_path = get_status_path(task_id)
-    if not status_path.exists():
-        raise HTTPException(status_code=404, detail="Task not found")
-        
-    with open(status_path, "r") as f:
-        data = json.load(f)
-        
-    if data.get("state") == "failed":
-        raise HTTPException(status_code=500, detail=f"Pipeline failed: {data.get('reason', 'Unknown error')}")
-        
-    if data.get("state") != "complete":
-        raise HTTPException(status_code=409, detail="Report is not ready yet (task not complete)")
-        
+    _require_complete_status(task_id)
+
     report_path = MESHES_DIR / task_id / "report.pdf"
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="Report PDF missing")
-        
+
     return FileResponse(report_path, media_type="application/pdf", filename=f"KneeTwin_Report_{task_id}.pdf")
 
 @app.get("/api/report/{task_id}/data")
 async def get_report_data(task_id: str):
     _validate_task_id(task_id)
-    status_path = get_status_path(task_id)
-    if not status_path.exists():
-        raise HTTPException(status_code=404, detail="Task not found")
-        
-    with open(status_path, "r") as f:
-        data = json.load(f)
-        
-    if data.get("state") == "failed":
-        raise HTTPException(status_code=500, detail=f"Pipeline failed: {data.get('reason', 'Unknown error')}")
-        
-    if data.get("state") != "complete":
-        raise HTTPException(status_code=409, detail="Report is not ready yet (task not complete)")
-        
+    _require_complete_status(task_id)
+
     json_path = MESHES_DIR / task_id / "report.json"
     if not json_path.exists():
         raise HTTPException(status_code=404, detail="Report JSON missing")

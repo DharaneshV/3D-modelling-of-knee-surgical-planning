@@ -79,7 +79,16 @@ predict_from_folder(
     # use relative path for WSL execution
     rel_wsl_script = f"{temp_dir.name}/run_inference.py"
     cmd = ["wsl", "-e", "bash", "-c", f"source ~/cartimorph_venv/bin/activate && python3 {rel_wsl_script}"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Generous, not tight: WSL not started or a GPU hang inside it used to
+    # block forever with no recovery. This exists to fail loudly after a long
+    # wait, not to catch merely-slow-but-healthy runs.
+    CARTIMORPH_TIMEOUT_S = 900
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=CARTIMORPH_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise Exception(f"CartiMorph WSL inference timed out after {CARTIMORPH_TIMEOUT_S}s "
+                       f"(possible WSL/GPU hang)")
     if result.returncode != 0:
         raise Exception(f"Inference Failed! \nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
         

@@ -5,7 +5,6 @@ import subprocess
 import threading
 import time
 import hashlib
-import shutil
 from pathlib import Path
 from backend.modality_detector import detect_modality
 from backend.config import PIPELINE_VERSION
@@ -22,6 +21,41 @@ CACHE_DIR.mkdir(exist_ok=True)
 # Global lock for single-job pipeline processing
 PIPELINE_LOCK = threading.Lock()
 
+# None of the subprocess.run() calls below used to pass a timeout. A hung
+# child (GPU driver stall, WSL not started, CUDA OOM) blocked the background
+# thread forever while it held PIPELINE_LOCK, wedging the whole pipeline for
+# every future upload with no recovery short of restarting the process.
+# Segmentation genuinely takes minutes on GPU, so these are generous, not
+# tight; they exist to convert "hangs forever" into "fails after N minutes
+# with a clear reason," not to catch merely-slow-but-healthy runs.
+CT_SEGMENTATION_TIMEOUT_S = 1200      # wraps run_ct_segmentation.py, itself
+                                       # allows 900s for the TotalSegmentator
+                                       # CLI call — headroom for our own I/O
+MRI_SEGMENTATION_TIMEOUT_S = 1200     # wraps run_mri_segmentation.py, itself
+                                       # allows 900s for the WSL CartiMorph call
+MESHING_TIMEOUT_S = 600
+REPORT_TIMEOUT_S = 300
+
+def atomic_write_json(path: Path, data: dict) -> None:
+    """
+    Write JSON so a concurrent reader never observes a partial file.
+
+    status.json is rewritten many times over the life of one pipeline run
+    (update_status is called at every stage transition) while /api/status
+    polls it on whatever cadence the client chooses — plain open(path, "w")
+    lets a poll land mid-write and see a truncated file, surfacing as an
+    unhandled json.JSONDecodeError. Writing to a sibling temp file first and
+    os.replace()-ing over the target is atomic on both POSIX and Windows: a
+    reader sees either the old complete file or the new one, never a partial
+    write in progress.
+    """
+    path = Path(path)
+    tmp_path = path.with_name(f"{path.name}.tmp{os.getpid()}")
+    with open(tmp_path, "w") as f:
+        json.dump(data, f, indent=4)
+    os.replace(tmp_path, path)
+
+
 def get_status_path(task_id: str) -> Path:
     task_dir = TASKS_DIR / task_id
     task_dir.mkdir(exist_ok=True)
@@ -29,16 +63,16 @@ def get_status_path(task_id: str) -> Path:
 
 def update_status(task_id: str, state: str, reason: str = "", modality: str = "", manifest: dict = None):
     status_path = get_status_path(task_id)
-    
+
     # Read existing
     data = {}
     if status_path.exists():
         try:
             with open(status_path, "r") as f:
                 data = json.load(f)
-        except:
+        except (json.JSONDecodeError, OSError):
             pass
-            
+
     data["task_id"] = task_id
     data["state"] = state
     if reason:
@@ -47,9 +81,8 @@ def update_status(task_id: str, state: str, reason: str = "", modality: str = ""
         data["modality"] = modality
     if manifest:
         data["manifest"] = manifest
-        
-    with open(status_path, "w") as f:
-        json.dump(data, f, indent=4)
+
+    atomic_write_json(status_path, data)
 
 def run_pipeline_async(task_id: str, file_path: str, file_hash: str = None):
     """
@@ -109,11 +142,16 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         
         update_status(task_id, "segmenting", modality=modality, reason="Running TotalSegmentator (femur, tibia, patella)...")
         seg_cmd = [python_exe, "src/segmentation/run_ct_segmentation.py", "--input", file_path, "--output", mask_output]
-        result = subprocess.run(seg_cmd, capture_output=True, text=True)
-        
+        try:
+            result = subprocess.run(seg_cmd, capture_output=True, text=True,
+                                    timeout=CT_SEGMENTATION_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            raise Exception(f"TotalSegmentator timed out after {CT_SEGMENTATION_TIMEOUT_S}s "
+                           f"(possible GPU/driver hang)")
+
         if result.returncode != 0:
             raise Exception(f"TotalSegmentator script failed. Error: {result.stderr.strip()}")
-            
+
     else:
         # Run MRI pipeline
         seg_cmd = [python_exe, "src/segmentation/run_mri_segmentation.py", "--input", file_path, "--output", mask_output]
@@ -125,8 +163,13 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
             {"file": "medial_tibial_cartilage.obj", "label": "Medial Tibial Cartilage", "color": "#00d2d3"},
             {"file": "lateral_tibial_cartilage.obj", "label": "Lateral Tibial Cartilage", "color": "#54a0ff"}
         ]
-        
-        result = subprocess.run(seg_cmd, capture_output=True, text=True)
+
+        try:
+            result = subprocess.run(seg_cmd, capture_output=True, text=True,
+                                    timeout=MRI_SEGMENTATION_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            raise Exception(f"MRI segmentation timed out after {MRI_SEGMENTATION_TIMEOUT_S}s "
+                           f"(possible WSL/CartiMorph hang)")
         if result.returncode != 0:
             raise Exception(f"Segmentation script failed: {result.stderr.strip()}")
 
@@ -136,7 +179,11 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
     # 3. Meshing
     update_status(task_id, "meshing", modality=modality)
     mesh_cmd = [python_exe, "scripts/run_meshing.py", "--input", mask_output, "--output_dir", str(task_mesh_dir), "--track", track]
-    result_mesh = subprocess.run(mesh_cmd, capture_output=True, text=True)
+    try:
+        result_mesh = subprocess.run(mesh_cmd, capture_output=True, text=True,
+                                     timeout=MESHING_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise Exception(f"Meshing timed out after {MESHING_TIMEOUT_S}s")
     if result_mesh.returncode != 0:
         raise Exception(f"Meshing script failed:\nSTDOUT:\n{result_mesh.stdout.strip()}\nSTDERR:\n{result_mesh.stderr.strip()}")
 
@@ -192,8 +239,7 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
         raise Exception(f"Validation failed. Missing or invalid meshes (possibly deleted due to QA failure): {', '.join(missing_files)}")
         
     # Write manifest
-    with open(task_mesh_dir / "manifest.json", "w") as f:
-        json.dump(manifest, f, indent=4)
+    atomic_write_json(task_mesh_dir / "manifest.json", manifest)
         
     # 4. Generate Report
     update_status(task_id, "generating_report", modality=modality)
@@ -202,7 +248,11 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
             python_exe, "backend/report_generator.py",
             task_id, modality, str(file_path), str(task_mesh_dir), str(mask_output)
         ]
-        result_report = subprocess.run(report_cmd, capture_output=True, text=True)
+        try:
+            result_report = subprocess.run(report_cmd, capture_output=True, text=True,
+                                           timeout=REPORT_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            raise Exception(f"Report generation timed out after {REPORT_TIMEOUT_S}s")
         if result_report.returncode != 0:
             raise Exception(f"Report generation script failed: {result_report.stderr.strip()}")
             
@@ -235,14 +285,13 @@ def check_cache(file_path: str) -> dict:
     return {"hit": False, "hash": file_hash}
 
 def write_cache(file_hash: str, task_id: str):
-    # Note: cache/*.json entries never expire or get pruned. Fine for POC, 
-    # but needs a cleanup policy for long-running production usage.
+    # cache/*.json entries never expire on their own — scripts/cleanup_old_tasks.py
+    # prunes stale entries alongside the uploads/meshes/tasks they reference.
     CACHE_DIR.mkdir(exist_ok=True)
     cache_file = CACHE_DIR / f"{file_hash}.json"
-    with open(cache_file, "w") as f:
-        json.dump({
-            "task_id": task_id,
-            "pipeline_version": PIPELINE_VERSION,
-            "timestamp": time.time()
-        }, f, indent=4)
+    atomic_write_json(cache_file, {
+        "task_id": task_id,
+        "pipeline_version": PIPELINE_VERSION,
+        "timestamp": time.time()
+    })
 

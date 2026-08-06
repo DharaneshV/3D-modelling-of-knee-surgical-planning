@@ -77,7 +77,20 @@ def export_ar_glb_from_meshes(meshes: dict, out_path: str, label_colors: dict) -
     if not scene.geometry:
         return None
 
-    scene.export(out_path)
+    # scene.export() writes straight to out_path with no temp-file-then-rename.
+    # /api/ar/{task_id} can be fetched at any moment relative to a pipeline run
+    # or a resect call regenerating this same path, so a direct write risks a
+    # reader observing a truncated GLB. Export to a sibling temp file and
+    # os.replace() into place — atomic on both POSIX and Windows.
+    #
+    # The uniqueness token goes before the extension, not after: trimesh infers
+    # the export format from the file suffix, so out_path + ".tmpNNNN" (no
+    # trailing .glb) makes export() fail with "exporter not available".
+    out_path = str(out_path)
+    base, ext = os.path.splitext(out_path)
+    tmp_path = f"{base}.tmp{os.getpid()}{ext}"
+    scene.export(tmp_path)
+    os.replace(tmp_path, out_path)
     return out_path
 
 
