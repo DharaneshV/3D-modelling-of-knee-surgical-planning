@@ -1,20 +1,48 @@
-monai[all]
-torch
-tensorboard
-matplotlib
-tqdm
-simpleitk
-pydicom
-scikit-image
-pyvista
-vtk
-pandas
-fastapi
-uvicorn
-python-multipart
-reportlab
-pymeshlab
-trimesh
-shapely
-rtree
-mapbox-earcut
+# Runtime dependencies, pinned to the versions this project is verified against.
+# Test-only dependencies live in requirements-dev.txt so a deployment does not
+# pull them in.
+#
+# Previously every entry floated unpinned, and numpy/scipy/scikit-learn/Pillow
+# were missing entirely despite being imported throughout — a fresh
+# `pip install -r requirements.txt` could resolve an incompatible numpy under
+# libraries (torch, vtk, monai) that have all had breaking API changes.
+
+# --- core numerics (were missing, imported nearly everywhere) ---
+numpy==2.4.6
+scipy==1.17.1
+scikit-learn==1.9.0
+pandas==2.2.3
+
+# --- medical imaging I/O and processing ---
+SimpleITK==2.5.5
+pydicom==3.0.2
+scikit-image==0.26.0
+Pillow==12.3.0
+
+# --- meshing / geometry ---
+vtk==9.3.1
+pyvista==0.48.4
+trimesh==4.12.2
+pymeshlab==2025.7.post1
+# shapely/rtree/mapbox-earcut are required for trimesh's capped plane slicing
+# (resection) and polygon work; mapbox-earcut is the permissively licensed
+# triangulation engine — trimesh's alternative, `triangle`, is not FSF-approved.
+shapely==2.1.2
+rtree==1.4.1
+mapbox-earcut==2.0.0
+
+# --- segmentation models ---
+torch==2.13.0
+monai[all]==1.6.0
+totalsegmentator==2.15.0
+tensorboard==2.21.0
+
+# --- web service ---
+fastapi==0.139.0
+uvicorn==0.50.2
+python-multipart==0.0.32
+
+# --- reporting ---
+reportlab==5.0.0
+matplotlib==3.11.0
+tqdm==4.68.3

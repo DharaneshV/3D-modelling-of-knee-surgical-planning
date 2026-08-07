@@ -1,0 +1,46 @@
+name: tests
+
+on:
+  push:
+    branches: [main, mri-only]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # The full requirements.txt pulls torch, monai and totalsegmentator —
+      # several GB, and none of it is reachable from the test suite, which runs
+      # entirely against synthetic fixtures. Installing only what the tests
+      # actually import keeps CI to a sensible runtime.
+      #
+      # If a future test does exercise the segmentation path, it will fail to
+      # import here rather than silently skip, which is the intended signal to
+      # revisit this list.
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            numpy==2.4.6 scipy==1.17.1 pandas==2.2.3 \
+            SimpleITK==2.5.5 Pillow==12.3.0 scikit-image==0.26.0 \
+            vtk==9.3.1 pyvista==0.48.4 trimesh==4.12.2 \
+            shapely==2.1.2 rtree==1.4.1 mapbox-earcut==2.0.0 \
+            fastapi==0.139.0 python-multipart==0.0.32 reportlab==5.0.0 \
+            pytest==9.1.1 httpx==0.28.1
+
+      # pyvista/vtk need a GL context even for off-screen work on a headless
+      # runner; without xvfb the topology and AR-export tests fail to import.
+      - name: Install headless GL support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1 libxrender1 libxkbcommon-x11-0
+
+      - name: Run tests
+        run: xvfb-run -a pytest tests/ -q

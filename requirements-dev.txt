@@ -1,0 +1,12 @@
+# Test-only dependencies. Kept separate from requirements.txt so a deployed
+# instance doesn't pull them in.
+#
+# httpx is not optional for the suite: fastapi.testclient.TestClient is built
+# on it, so tests/test_slice_endpoint.py, test_resect_endpoint.py and
+# test_upload_security.py cannot even be collected without it. Neither it nor
+# pytest was listed anywhere, so a fresh clone could not run the tests.
+
+-r requirements.txt
+
+pytest==9.1.1
+httpx==0.28.1

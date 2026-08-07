@@ -131,7 +131,7 @@ Run on **all 103 OAI-ZIB test cases** via `scripts/run_oaizib_validation.py`; pe
 
 | Item | Status | Blocker |
 |---|---|---|
-| Implant geometry | 🔲 Not built | No public vendor CAD exists. Plan is a **generic parametric component** sized from measured anatomy — deliberately generic, and must be labelled as such, since it will not match any real implant SKU. |
+| Implant geometry | ✅ Built | `src/mesh/implant.py` — generic parametric tibial tray and femoral component, sized from measured anatomy and fitted in `/api/resect`. Deliberately generic and labelled as such (the API returns an `implant_note` saying so): no public vendor CAD exists, so these match no real implant SKU. Tray sizing tests true 2D containment against the resection outline rather than bounding boxes, and searches seating position, because a centred symmetric tray overhangs an asymmetric plateau. Femoral sizing never rounds AP up, since oversizing notches the anterior cortex. |
 | ACL / PCL / meniscus segmentation | 🔲 Not built | Data (§5), not effort. |
 | Tear detection / grading | ❌ Cut | Data (§5). |
 | USDZ / iOS AR | 🔲 Not built | — |
@@ -179,7 +179,19 @@ Run on **all 103 OAI-ZIB test cases** via `scripts/run_oaizib_validation.py`; pe
 
 ## 8. Test Suite & A Version-Control Gap Worth Remembering
 
-**Current state:** ✅ `pytest tests/ -q` → **11 passed**, no ignore flags. Four files on disk before the fix, three now: `test_fill_label_gaps.py`, `test_report_generator.py`, `test_slice_endpoint.py`.
+**Current state:** ✅ `pytest tests/ -q` → **85 passed**, no ignore flags, no GPU or external models required (everything runs against synthetic fixtures). Files: `test_fill_label_gaps.py`, `test_report_generator.py`, `test_slice_endpoint.py`, `test_implant.py`, `test_mesh_topology.py`, `test_cut_surface.py`, `test_upload_security.py`, `test_anatomic_axis.py`, `test_ar_export.py`, `test_resect_endpoint.py`.
+
+The last four close the gaps this section previously flagged as thin coverage:
+`test_upload_security.py` pins the upload path-traversal fix (parametrised over
+separator styles, since `\` is also a separator on Windows);
+`test_anatomic_axis.py` guards the PCA-rejection fix — verified genuinely
+protective by running its assertions against a reimplementation of the pre-fix
+version, which returns a mediolateral axis and reproduces a 91° "anatomic axis
+angle"; `test_ar_export.py` covers the AR triangle budget, above all that
+decimation preserves real-world scale (AR renders at 1:1, so a shifted bounding
+box means differently-sized anatomy); and `test_resect_endpoint.py` covers the
+`/api/resect` route itself, including the two divergent shapes under
+`resections` — a divergence that had already crashed the frontend once.
 
 **What went wrong.** `.gitignore` carried an unanchored `test_*.py` rule, aimed at ~35 ad-hoc scratch scripts sitting at the repo root. Git applies unanchored patterns at *every* directory level, so the rule also matched inside `tests/`. Two of the four suite files — `tests/test_boolean_resolution.py` and `tests/test_fill_label_gaps.py` — were consequently never tracked. (The other two, `test_report_generator.py` and `test_slice_endpoint.py`, *were* tracked throughout; the suite as a whole was in version control, the gap was file-specific.)
 

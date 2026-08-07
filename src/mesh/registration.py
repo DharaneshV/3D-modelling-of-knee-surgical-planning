@@ -1,3 +1,19 @@
+# =============================================================================
+# ARCHIVED — not called by the live pipeline.
+#
+# This module supported per-case CT–MRI registration: aligning an MRI volume to
+# a CT volume so bone (from CT) and cartilage (from MRI) could be fused into one
+# coordinate space.
+#
+# It is no longer used because the per-case pipeline never fuses the two
+# modalities. A case is processed as CT *or* MRI, and the MRI track gets its
+# bone from CartiMorph's native labels 1/3 in the same segmentation pass as
+# cartilage — so there are no two volumes to bring into alignment.
+#
+# Kept for reference rather than deleted, matching the convention used for
+# src/synthesis/bone_from_mri.py and backend/mesh_processing/boolean_resolution.py.
+# Do NOT re-import without re-establishing why two modalities need fusing.
+# =============================================================================
 import SimpleITK as sitk
 
 def register_mri_to_ct(fixed_ct_image: sitk.Image, moving_mri_image: sitk.Image) -> sitk.Transform:

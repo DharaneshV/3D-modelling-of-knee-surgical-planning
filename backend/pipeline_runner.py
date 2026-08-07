@@ -208,6 +208,11 @@ def _execute_pipeline(task_id: str, file_path: str, modality: str):
 
     manifest = {
         "task_id": task_id,
+        # Which pipeline produced these files. Previously only the separate
+        # cache/<hash>.json carried this, and that is keyed by input hash, not
+        # task_id — so given a task directory there was no way to tell which
+        # version generated its contents.
+        "pipeline_version": PIPELINE_VERSION,
         "modality": modality,
         "laterality": laterality,
         "ar_glb": ar_glb_filename if ar_glb_path.exists() else None,

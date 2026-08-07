@@ -14,6 +14,7 @@ from backend.pipeline_runner import (
     UPLOADS_DIR, MESHES_DIR, TASKS_DIR, REPORT_TIMEOUT_S, atomic_write_json,
 )
 from backend.modality_detector import detect_modality
+from backend.config import RESECTION_VERSION
 import shutil
 
 app = FastAPI()
@@ -484,6 +485,11 @@ def resect_bones(task_id: str,
 
         return {
             "task_id": task_id,
+            # Which resection/implant logic produced this. The .obj files this
+            # writes are otherwise indistinguishable between versions, so a
+            # cached or previously-downloaded result cannot be told apart from
+            # one generated after a sizing-table or cut-placement change.
+            "resection_version": RESECTION_VERSION,
             "limb_axis": [round(float(x), 4) for x in axis],
             "axis_note": ("Limb-axis proxy from bone centroids. A knee-only field "
                           "of view contains no hip or ankle centre, so this is not "

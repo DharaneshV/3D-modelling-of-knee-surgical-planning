@@ -1,3 +1,18 @@
+# =============================================================================
+# ARCHIVED — not called by the live pipeline.
+#
+# This module merged a CT bone mask with an MRI cartilage mask that had already
+# been registered into the CT's space, offsetting the cartilage labels so the
+# two label sets wouldn't collide.
+#
+# It is no longer used for the same reason as src/mesh/registration.py, whose
+# output it consumed: the per-case pipeline never fuses CT and MRI. Each case is
+# one modality, and on the MRI track bone and cartilage already share a
+# coordinate space by construction (both come from the same CartiMorph pass).
+#
+# Kept for reference rather than deleted, matching the convention used for
+# src/synthesis/bone_from_mri.py and backend/mesh_processing/boolean_resolution.py.
+# =============================================================================
 import SimpleITK as sitk
 import numpy as np
 
