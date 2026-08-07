@@ -227,7 +227,7 @@
         </div>
 
         <!-- AR Preview Modal -->
-        <div id="ar-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center;">
+        <div id="ar-modal" role="dialog" aria-modal="true" aria-label="AR model preview" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center;">
             <div style="position: relative; width: 90%; height: 90%;">
                 <button class="btn-secondary" id="ar-modal-close" style="position: absolute; top: 1rem; right: 1rem; z-index: 10;">Close</button>
                 <model-viewer id="ar-model-viewer" style="width: 100%; height: 100%; background: #1a1a2e; border-radius: 8px;"

@@ -1,3 +1,25 @@
+// Neither swapPart, setExtraPart, nor initViewer's re-entry path ever called
+// .dispose() on a replaced/discarded Object3D's geometry — confirmed by grep,
+// zero .dispose() calls existed anywhere in this file. Repeated resect/restore
+// cycles leaked GPU memory per bone; repeated "Upload New Scan" cycles leaked
+// whole WebGLRenderer instances and their GL contexts, which browsers cap at
+// roughly 16 concurrent — eventually new ones fail to acquire.
+//
+// Material is deliberately NOT disposed here by default: swapPart reuses the
+// old object's material on its replacement (same visual state, cheaper than
+// rebuilding it), so disposing it under the object being replaced would break
+// the new one. Callers that fully discard an object (nothing reusing its
+// material) pass disposeMaterial: true.
+function _disposeObject3D(obj, { disposeMaterial = false } = {}) {
+    obj.traverse((c) => {
+        if (!c.isMesh) return;
+        if (c.geometry) c.geometry.dispose();
+        if (disposeMaterial && c.material) {
+            (Array.isArray(c.material) ? c.material : [c.material]).forEach(m => m.dispose());
+        }
+    });
+}
+
 class KneeViewport {
     constructor(containerId, side, taskId, modality) {
         this.container = document.getElementById(containerId);
@@ -57,6 +79,18 @@ class KneeViewport {
     
     stopAnimation() {
         this.animating = false;
+    }
+
+    /**
+     * Full teardown: every mesh's geometry and material, then the renderer
+     * itself (which is what actually releases the WebGL context — clearing
+     * the DOM container does not). Call this instead of stopAnimation() when
+     * the viewport itself is being discarded, e.g. on "Upload New Scan".
+     */
+    dispose() {
+        this.stopAnimation();
+        _disposeObject3D(this.scene, { disposeMaterial: true });
+        this.renderer.dispose();
     }
     
     resize() {
@@ -165,6 +199,7 @@ class KneeViewport {
         if (!color) {
             if (existing) {
                 this.kneeGroup.remove(existing);
+                _disposeObject3D(existing, { disposeMaterial: true });
                 delete this.partObjects[file];
                 this.renderer.render(this.scene, this.camera);
             }
@@ -213,6 +248,8 @@ class KneeViewport {
             obj.userData.showing = target;
 
             this.kneeGroup.remove(existing);
+            // Material is now owned by `obj` above — dispose only the geometry.
+            _disposeObject3D(existing, { disposeMaterial: false });
             this.kneeGroup.add(obj);
             this.partObjects[file] = obj;
             this.renderer.render(this.scene, this.camera);
@@ -269,8 +306,9 @@ window.initViewer = async function(taskId) {
     const leftPanel = document.getElementById("left-knee-panel");
     const rightPanel = document.getElementById("right-knee-panel");
     
-    // Stop old animations and clear
-    window.activeViewports.forEach(vp => vp.stopAnimation());
+    // Full teardown of the previous task's viewports, not just stopping their
+    // render loops — see KneeViewport.dispose() for why.
+    window.activeViewports.forEach(vp => vp.dispose());
     window.activeViewports = [];
     legacyContainer.innerHTML = '';
     document.getElementById("left-canvas-container").innerHTML = '';

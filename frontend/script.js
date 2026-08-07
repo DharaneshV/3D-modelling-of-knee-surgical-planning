@@ -1,7 +1,17 @@
-// Same-origin: the page is served by the backend, so the API is a relative
-// path. A hardcoded host breaks the moment the page is opened from anything
-// other than the machine running the server — a phone, most obviously.
-const API_BASE = '/api';
+// API_BASE is declared once in slice_viewer.js, which loads before this file
+// and shares the same top-level scope — see the comment there.
+
+// Escapes text for safe innerHTML interpolation. Most call sites below
+// interpolate our own server-computed numbers/labels, not attacker input, but
+// file.name in handleFile() genuinely is user-controlled (a crafted filename
+// like "<img src=x onerror=...>.nii.gz" would otherwise inject into the DOM),
+// and the rest are consolidated onto the same helper rather than trusting
+// each call site to individually reason about whether its value is safe.
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     const dropZone = document.getElementById('drop-zone');
@@ -26,6 +36,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Task currently shown on the dashboard. Tracked here rather than reusing
     // slice_viewer.js's currentTaskId so this file doesn't depend on load order.
     let dashboardTaskId = null;
+    // pollStatus's setInterval handle. "Upload New Scan" used to leave this
+    // running: if the abandoned pipeline finished afterward, its callback
+    // still fired and silently overwrote dashboardTaskId/the 3D viewer with
+    // the OLD task's data out from under whatever the user had since started.
+    let activePollInterval = null;
 
     // Prevent default drag behaviors
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -59,7 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fileList.innerHTML = `
             <li class="file-item">
                 <div class="file-info">
-                    <span class="file-name">${file.name}</span>
+                    <span class="file-name">${escapeHtml(file.name)}</span>
                     <span class="file-size">${formatBytes(file.size)}</span>
                 </div>
             </li>
@@ -79,9 +94,24 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedFile = null;
         fileListContainer.style.display = 'none';
         dropZone.style.display = 'block';
+        uploadBtn.disabled = false;
     });
     
     newScanBtn.addEventListener('click', () => {
+        if (activePollInterval) {
+            clearInterval(activePollInterval);
+            activePollInterval = null;
+        }
+        // Full teardown, not just stopping the render loop — the previous
+        // task's WebGL resources should not keep existing once its dashboard
+        // is gone, and this "Upload New Scan" click may be the only signal
+        // that the user is done with them.
+        if (window.activeViewports) {
+            window.activeViewports.forEach(vp => vp.dispose());
+            window.activeViewports = [];
+        }
+        dashboardTaskId = null;
+
         dashboardSection.style.display = 'none';
         uploadSection.style.display = 'block';
         clearBtn.click();
@@ -89,9 +119,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const arModal = document.getElementById('ar-modal');
     const arModelViewer = document.getElementById('ar-model-viewer');
-    document.getElementById('ar-modal-close').addEventListener('click', () => {
+    const arModalClose = document.getElementById('ar-modal-close');
+    let arModalTrigger = null;  // element to return focus to on close
+
+    function closeArModal() {
         arModal.style.display = 'none';
         arModelViewer.src = '';
+        if (arModalTrigger) {
+            arModalTrigger.focus();
+            arModalTrigger = null;
+        }
+    }
+
+    function openArModal(src) {
+        arModalTrigger = document.activeElement;
+        arModelViewer.src = src;
+        arModal.style.display = 'flex';
+        arModalClose.focus();
+    }
+
+    arModalClose.addEventListener('click', closeArModal);
+
+    // Escape-to-close and returning focus on exit are both missing: the modal
+    // had no role="dialog"/aria-modal (set in index.html), no keyboard escape
+    // route, and a keyboard user had to tab blindly to find Close.
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && arModal.style.display !== 'none') {
+            closeArModal();
+        }
     });
 
     // --- Resection planning ---
@@ -108,36 +163,79 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    function showResected(show) {
+    // Remembers each cartilage checkbox's state from just before a resection
+    // forced it off, so restoring intact anatomy restores what the user
+    // actually had chosen rather than unconditionally re-checking everything
+    // — a user who had deliberately hidden cartilage before ever planning a
+    // resection was otherwise having that choice silently overwritten.
+    let cartilagePreResectionState = null;
+
+    function showResected(show, availableImplants = {}) {
         window.activeViewports.forEach(vp => {
             vp.swapPart('femur_unknown.obj', show ? 'femur_resected.obj' : null);
             vp.swapPart('tibia_unknown.obj', show ? 'tibia_resected.obj' : null);
             vp.setBoneOpaque(show);
-            vp.setExtraPart('tibial_tray.obj', show ? '#c8d0dc' : null);
-            vp.setExtraPart('femoral_component.obj', show ? '#c8d0dc' : null);
+            // Only display an implant if THIS resection actually produced one:
+            // the file on disk can be stale (a fit that succeeded at a
+            // previous slider setting but failed at the current one is never
+            // deleted), so presence in the current response's `implants` —
+            // not presence of the file — decides whether to show it.
+            vp.setExtraPart('tibial_tray.obj', show && availableImplants.tibial ? '#c8d0dc' : null);
+            vp.setExtraPart('femoral_component.obj', show && availableImplants.femoral ? '#c8d0dc' : null);
         });
 
         // Articular cartilage sits on the surfaces being cut, so a resection
         // takes it with the bone — leaving it on screen would misrepresent the
         // result, and it also occludes the cut face. Driven through the part
-        // checkboxes so the panel stays in sync with what is displayed.
-        document.querySelectorAll('.part-controls label').forEach(row => {
-            const name = row.querySelector('span:last-child').textContent;
-            if (!name.includes('Cartilage')) return;
-            const cb = row.querySelector('input');
-            if (cb.checked === show) {
-                cb.checked = !show;
-                cb.dispatchEvent(new Event('change'));
-            }
-        });
+        // checkboxes so the panel stays in sync with what is displayed, and
+        // disabled while resected so re-checking one can't put cartilage back
+        // through the open cut face the resection just made.
+        const cartilageCheckboxes = [...document.querySelectorAll('.part-controls label')]
+            .filter(row => row.querySelector('span:last-child').textContent.includes('Cartilage'))
+            .map(row => row.querySelector('input'));
+
+        if (show) {
+            cartilagePreResectionState = new Map(cartilageCheckboxes.map(cb => [cb, cb.checked]));
+            cartilageCheckboxes.forEach(cb => {
+                if (cb.checked) {
+                    cb.checked = false;
+                    cb.dispatchEvent(new Event('change'));
+                }
+                cb.disabled = true;
+            });
+        } else {
+            cartilageCheckboxes.forEach(cb => {
+                cb.disabled = false;
+                const wasChecked = cartilagePreResectionState?.get(cb) ?? true;
+                if (cb.checked !== wasChecked) {
+                    cb.checked = wasChecked;
+                    cb.dispatchEvent(new Event('change'));
+                }
+            });
+            cartilagePreResectionState = null;
+        }
 
         document.getElementById('restore-intact-btn').style.display = show ? 'block' : 'none';
     }
 
     const planBtn = document.getElementById('plan-resection-btn');
     if (planBtn) planBtn.addEventListener('click', async () => {
-        if (!dashboardTaskId) return;
+        if (!dashboardTaskId || planBtn.disabled) return;
+
+        const body = document.getElementById('resection-body');
+        // Cleared unconditionally, before the request, not just on success —
+        // a failed re-plan after a prior successful one used to leave the old
+        // cut-surface/implant rows on screen at the same time as the "failed"
+        // caveat, a misleading mixed state.
+        body.innerHTML = '';
+        document.getElementById('resection-results').style.display = 'none';
+
         planBtn.disabled = true;
+        // The request takes ~24s (box-cut resection + two implant fits + AR
+        // export) with nothing but this label to show for it otherwise —
+        // confirmed by direct timing. btn-loading adds a CSS pulse so the
+        // wait doesn't read as a frozen page.
+        planBtn.classList.add('btn-loading');
         planBtn.textContent = 'Planning...';
         try {
             const q = new URLSearchParams({
@@ -150,15 +248,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Resection failed');
 
-            const body = document.getElementById('resection-body');
-            body.innerHTML = '';
+            // `resections` holds two different shapes. A single-plane cut
+            // (always the tibia; the femur only when its box preparation fell
+            // back) carries depth_mm/cut_surface/volumes. The femoral five-cut
+            // box carries preparation/distal_depth_mm/component_size and has NO
+            // cut_surface — there are five cut faces, not one, so a single
+            // ML/AP pair would be meaningless. Reading r.cut_surface.ml_mm
+            // unconditionally threw a TypeError on the femur row, which aborted
+            // the whole handler: the table showed only the tibia and
+            // showResected() never ran, so the 3D view silently stayed intact
+            // after a "successful" resection.
             Object.entries(data.resections).forEach(([bone, r]) => {
                 const removed = r.removed_volume_mm3
                     ? `${(r.removed_volume_mm3 / 1000).toFixed(1)} cm³` : 'n/a';
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${bone} @ ${r.depth_mm}mm</td>` +
-                    `<td>${r.cut_surface.ml_mm} mm</td>` +
-                    `<td>${r.cut_surface.ap_mm} mm</td><td>${removed}</td>`;
+                if (r.cut_surface) {
+                    tr.innerHTML = `<td>${escapeHtml(bone)} @ ${r.depth_mm}mm</td>` +
+                        `<td>${r.cut_surface.ml_mm} mm</td>` +
+                        `<td>${r.cut_surface.ap_mm} mm</td><td>${removed}</td>`;
+                } else {
+                    tr.innerHTML = `<td>${escapeHtml(bone)} @ ${r.distal_depth_mm}mm</td>` +
+                        `<td colspan="2">${escapeHtml(r.preparation || 'prepared')}</td>` +
+                        `<td>${removed}</td>`;
+                }
                 body.appendChild(tr);
             });
             const implants = data.implants || {};
@@ -173,9 +285,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     : `${imp.ap_margin_mm} mm AP margin` +
                       (imp.ml_overhang ? ', ML overhangs' : '');
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td><strong>${labels[kind]} size ${imp.size}</strong>` +
+                tr.innerHTML = `<td><strong>${escapeHtml(labels[kind])} size ${imp.size}</strong>` +
                     `${imp.fit === 'fitted' ? '' : ' <em>(undersize)</em>'}</td>` +
-                    `<td>${imp.ml_mm} mm</td><td>${imp.ap_mm} mm</td><td>${note}</td>`;
+                    `<td>${imp.ml_mm} mm</td><td>${imp.ap_mm} mm</td><td>${escapeHtml(note)}</td>`;
                 body.appendChild(tr);
             });
 
@@ -184,13 +296,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 (Object.keys(implants).length ? ' ' + data.implant_note : '');
             document.getElementById('resection-results').style.display = 'block';
 
-            showResected(true);
+            showResected(true, implants);
         } catch (e) {
             console.error('Resection failed', e);
             document.getElementById('resection-caveat').textContent = `Resection failed: ${e.message}`;
             document.getElementById('resection-results').style.display = 'block';
         } finally {
             planBtn.disabled = false;
+            planBtn.classList.remove('btn-loading');
             planBtn.textContent = 'Plan Resection';
         }
     });
@@ -204,10 +317,12 @@ document.addEventListener('DOMContentLoaded', () => {
         errorText.style.display = 'none';
         cancelBtn.style.display = 'none';
         progressBar.style.width = '0%';
+        uploadBtn.disabled = false;
     });
 
     uploadBtn.addEventListener('click', async () => {
-        if (!selectedFile) return;
+        if (!selectedFile || uploadBtn.disabled) return;
+        uploadBtn.disabled = true;
 
         processingOverlay.style.display = 'flex';
         processingText.textContent = `Processing: ${selectedFile.name}`;
@@ -254,11 +369,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function pollStatus(taskId) {
-        const interval = setInterval(async () => {
+        activePollInterval = setInterval(async () => {
             try {
                 const res = await fetch(`${API_BASE}/status/${taskId}`);
                 const data = await res.json();
-                
+
                 if (data.laterality && data.laterality !== 'unknown') {
                     const latBadge = document.getElementById('laterality-badge');
                     latBadge.style.display = 'block';
@@ -278,20 +393,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     progressBar.style.width = '85%';
                     document.getElementById('report-placeholder-text').textContent = 'Generating report...';
                 } else if (data.state === 'failed') {
-                    clearInterval(interval);
+                    clearInterval(activePollInterval);
+                    activePollInterval = null;
                     showError(data.reason || 'Pipeline failed');
                     // Show failure in report panel as well
                     document.getElementById('report-placeholder-text').textContent = `Pipeline Failed: ${data.reason}`;
                     document.getElementById('report-placeholder-text').style.color = 'var(--danger)';
                 } else if (data.state === 'complete') {
-                    clearInterval(interval);
+                    clearInterval(activePollInterval);
+                    activePollInterval = null;
                     progressBar.style.width = '100%';
                     processingText.textContent = 'Complete!';
-                    
+
                     setTimeout(() => loadDashboard(taskId), 500);
                 }
             } catch (err) {
-                clearInterval(interval);
+                clearInterval(activePollInterval);
+                activePollInterval = null;
                 showError('Error checking status');
             }
         }, 1500);
@@ -328,7 +446,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML = '';
             data.metrics.forEach(m => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${m.name}</td><td>${m.value}</td><td>${m.caveat}</td>`;
+                tr.innerHTML = `<td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.value)}</td><td>${escapeHtml(m.caveat)}</td>`;
                 tbody.appendChild(tr);
             });
             
@@ -350,10 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const manifest = await manifestRes.json();
                 if (manifest.ar_glb) {
                     arBtn.style.display = 'block';
-                    arBtn.onclick = () => {
-                        arModelViewer.src = `${API_BASE}/ar/${taskId}`;
-                        arModal.style.display = 'flex';
-                    };
+                    arBtn.onclick = () => openArModal(`${API_BASE}/ar/${taskId}`);
                 } else {
                     arBtn.style.display = 'none';
                 }

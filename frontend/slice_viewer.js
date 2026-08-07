@@ -15,14 +15,16 @@ const wcLabel = document.getElementById('wc-label');
 const wwLabel = document.getElementById('ww-label');
 const planeBtns = document.querySelectorAll('.plane-btn');
 
-// Use the same API base as script.js
-const SLICE_API_BASE = '/api';
+// Shared with script.js, which loads after this file and references the same
+// global rather than redeclaring it — classic (non-module) scripts on one
+// page share a top-level scope, so a single const here is visible there too.
+const API_BASE = '/api';
 
 function initSliceViewer(taskId) {
     currentTaskId = taskId;
     
     // Fetch volume info
-    fetch(`${SLICE_API_BASE}/volume-info/${taskId}`)
+    fetch(`${API_BASE}/volume-info/${taskId}`)
         .then(res => {
             if (!res.ok) throw new Error("Volume info not found");
             return res.json();
@@ -85,11 +87,15 @@ function updateSliceImage() {
     sliceLabel.textContent = `${index}/${volumeInfo.num_slices[currentPlane] - 1}`;
     
     // Omitting wc/ww entirely tells the backend to auto-window this slice.
-    let url = `${SLICE_API_BASE}/slices/${currentTaskId}/${currentPlane}/${index}`;
+    let url = `${API_BASE}/slices/${currentTaskId}/${currentPlane}/${index}`;
     if (!autoWindow) {
         url += `?wc=${wcSlider.value}&ww=${wwSlider.value}`;
     }
 
+    sliceImage.onerror = () => {
+        sliceImage.onerror = null;  // avoid a loop if the placeholder itself 404s
+        console.error(`Failed to load slice ${currentPlane}/${index}`);
+    };
     sliceImage.src = url;
 }
 

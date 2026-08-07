@@ -137,6 +137,32 @@ button {
     transition: all 0.2s ease;
 }
 
+/* outline: none above removes the default focus ring with no replacement —
+   every keyboard-navigable control in the app loses its focus indicator
+   entirely, a real regression for a clinical tool, not just a style nit.
+   :focus-visible (rather than :focus) keeps the ring keyboard-only, matching
+   native browser behavior, so a mouse click still shows nothing extra. */
+button:focus-visible,
+#canvas-container:focus-visible,
+#left-canvas-container:focus-visible,
+#right-canvas-container:focus-visible,
+input:focus-visible,
+a:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Visible "this is actively working" signal for the ~24s resection wait —
+   the button previously only changed its text to "Planning...", easy to miss
+   and indistinguishable from a frozen page at a glance. */
+@keyframes btn-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+.btn-loading {
+    animation: btn-pulse 1.2s ease-in-out infinite;
+}
+
 .btn-primary {
     background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
     color: white;
@@ -486,6 +512,16 @@ button {
     .dual-viewer-layout.split {
         grid-template-columns: 1fr;
         grid-template-rows: 1fr 1fr;
+    }
+}
+/* AR is phone-first, but the fixed 500px slice/3D/report panel heights
+   (unchanged below this breakpoint) forced several screen-heights of
+   scrolling on a real phone viewport (~360-414px wide) before reaching "View
+   in AR" — the one control that matters most there. */
+@media (max-width: 480px) {
+    #canvas-container,
+    .slice-image-container {
+        height: 300px;
     }
 }
 .knee-panel {

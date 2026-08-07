@@ -425,11 +425,14 @@ def fit_femoral_component(femur: trimesh.Trimesh, axis: np.ndarray,
 
     Returns the size, the placed component, and the prepared femur.
     """
-    from src.mesh.resection import femoral_box_planes, normalize_winding, resect_femoral_box
+    from src.mesh.resection import femoral_box_planes, resect_femoral_box
 
-    # Same reason as plan_resection: meshes predating the topology repair carry
-    # inconsistent winding, which inflates every volume taken from them.
-    femur = normalize_winding(femur)
+    # Winding is deliberately NOT normalized here. It costs ~43s on a 209k-face
+    # femur and affects only signed volume, which this function never reports —
+    # it returns the prepared mesh and component sizing, both of which are
+    # winding-independent (verified: cut ML/AP/area/centroid are bit-identical
+    # either way). Any caller that does take a volume from the returned mesh
+    # goes through resection._volume_of, which handles winding lazily.
 
     axis = np.asarray(axis, dtype=float)
     axis = axis / np.linalg.norm(axis)

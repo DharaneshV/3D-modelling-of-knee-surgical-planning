@@ -111,11 +111,91 @@ def normalize_winding(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
 
     Index-only and idempotent: no vertex coordinate is created, moved or removed,
     so the surfaces the cut and the sizing are measured from do not shift.
+
+    EXPENSIVE — trimesh.repair.fix_winding walks face adjacency across the whole
+    mesh: measured at 19s for a 145k-face tibia and 43s for a 209k-face femur.
+    Only call it where a *signed volume* is actually needed. Verified directly
+    that cut-surface ML/AP, area and centroid are bit-identical with and without
+    it (only .volume differs), so the geometry path must not pay this cost.
     """
     fixed = mesh.copy()
     trimesh.repair.fix_winding(fixed)
     if fixed.volume < 0:
         fixed.invert()
+    return fixed
+
+
+def _volume_of(mesh: trimesh.Trimesh) -> float | None:
+    """
+    Correctly-signed volume, paying for a winding fix only when one is needed.
+
+    trimesh's .volume is a signed sum over faces, so it is only meaningful once
+    winding is consistent — but normalize_winding is very slow (see its
+    docstring), so it must not run speculatively. A wrongly-wound closed mesh
+    reports a volume that is too large or negative, never a plausible-looking
+    correct one, so: take the raw volume, sanity-check it against the convex
+    hull (computed from the point cloud, so winding-independent — a solid can
+    never enclose more than its own hull), and only correct when it fails.
+
+    Callers that need volumes from BOTH a mesh and something cut from it should
+    normalize the source first via normalized_for_volume() — a mesh cut from a
+    correctly-wound one inherits correct winding, so that pays the cost once
+    instead of once per derived mesh.
+
+    Returns None for a mesh that isn't closed, where no volume is defined.
+    """
+    if not mesh.is_watertight:
+        return None
+
+    raw = float(mesh.volume)
+    if raw > 0:
+        try:
+            if raw <= float(mesh.convex_hull.volume):
+                return raw
+        except Exception:
+            return raw
+
+    return float(normalize_winding(mesh).volume)
+
+
+# Winding normalization is pure input->output on mesh topology and costs 19-43s
+# per bone, while the usual workflow re-plans the same bones repeatedly as the
+# depth/angle sliders are adjusted. Cache by the mesh's identity so that cost is
+# paid once per bone per process rather than once per request.
+_winding_cache: dict = {}
+
+
+def normalized_for_volume(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """
+    Winding-normalized view of `mesh`, cached and reused across calls.
+
+    Keyed on the actual vertex/face data (not object identity) so a mesh
+    re-loaded from the same file on a later request still hits the cache.
+    Meshes already correctly wound skip the expensive pass entirely.
+    """
+    try:
+        key = (mesh.vertices.tobytes(), mesh.faces.tobytes())
+    except Exception:
+        return normalize_winding(mesh)
+
+    cached = _winding_cache.get(key)
+    if cached is not None:
+        return cached
+
+    # Already-correct meshes (anything produced since the topology repair
+    # landed) need no work — the hull check is orders of magnitude cheaper
+    # than fix_winding.
+    if mesh.is_watertight:
+        raw = float(mesh.volume)
+        try:
+            if 0 < raw <= float(mesh.convex_hull.volume):
+                _winding_cache[key] = mesh
+                return mesh
+        except Exception:
+            pass
+
+    fixed = normalize_winding(mesh)
+    _winding_cache[key] = fixed
     return fixed
 
 
@@ -296,7 +376,13 @@ def plan_resection(mesh: trimesh.Trimesh, axis: np.ndarray, bone: str,
     if depth_mm is None:
         depth_mm = DEFAULT_FEMUR_DEPTH_MM if bone == "femur" else DEFAULT_TIBIA_DEPTH_MM
 
-    mesh = ensure_watertight(normalize_winding(mesh))
+    # Normalize the SOURCE mesh's winding once (cached across calls): the mesh
+    # cut from it then inherits correct winding, so both volumes below are free.
+    # Doing it lazily per-mesh instead would pay the 19-43s cost twice, once for
+    # the original and again for the cut. Winding does not affect the cut
+    # geometry either way — verified that ML/AP/area/centroid are bit-identical
+    # with and without it — so this is purely to make the volumes meaningful.
+    mesh = ensure_watertight(normalized_for_volume(mesh))
     origin, normal = resection_plane(mesh, axis, bone, depth_mm, varus_deg, slope_deg)
     resected = resect(mesh, origin, normal)
 
@@ -304,8 +390,8 @@ def plan_resection(mesh: trimesh.Trimesh, axis: np.ndarray, bone: str,
         raise ValueError(f"Resection of {bone} at {depth_mm}mm removed the entire mesh")
 
     dims = cut_surface_dimensions(resected, normal, origin)
-    original_vol = float(mesh.volume) if mesh.is_watertight else None
-    resected_vol = float(resected.volume) if resected.is_watertight else None
+    original_vol = _volume_of(mesh)
+    resected_vol = _volume_of(resected)
 
     return {
         "bone": bone,
