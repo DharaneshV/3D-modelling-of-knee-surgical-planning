@@ -503,14 +503,69 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // ?task=<id> opens an already-processed case directly. Without it the only
-    // route to the dashboard is uploading a scan, which is impractical from a
-    // phone — and a phone is the only place AR actually runs.
-    const requestedTask = new URLSearchParams(window.location.search).get('task');
-    if (requestedTask) {
-        uploadSection.style.display = 'none';
-        dashboardSection.style.display = 'grid';
-        if (window.initSliceViewer) initSliceViewer(requestedTask);
-        loadDashboard(requestedTask);
+    // --- Access key ---
+    // The server may be configured with a shared key (KNEETWIN_API_KEY). Once
+    // exchanged via /api/auth it sets an HttpOnly session cookie, which the
+    // browser then attaches automatically to every request — including the
+    // <img>, <model-viewer> and PDF-link loads that cannot carry a custom
+    // header. So nothing else in this file needs to know about auth.
+    const authModal = document.getElementById('auth-modal');
+    const authForm = document.getElementById('auth-form');
+    const authInput = document.getElementById('auth-key-input');
+    const authError = document.getElementById('auth-error');
+
+    function showAuthPrompt() {
+        authModal.style.display = 'flex';
+        authInput.focus();
     }
+
+    authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        authError.style.display = 'none';
+        try {
+            const res = await fetch(`${API_BASE}/auth`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: authInput.value }),
+            });
+            if (!res.ok) throw new Error('That key was not accepted.');
+            authModal.style.display = 'none';
+            // Reload so everything re-fetches with the session cookie, rather
+            // than trying to replay whichever calls happened to fail first.
+            window.location.reload();
+        } catch (err) {
+            authError.textContent = err.message;
+            authError.style.display = 'block';
+            authInput.select();
+        }
+    });
+
+    async function startApp() {
+        try {
+            const res = await fetch(`${API_BASE}/auth/status`);
+            const status = await res.json();
+            if (status.auth_required && !status.authenticated) {
+                showAuthPrompt();
+                return;  // don't load anything until unlocked
+            }
+        } catch (e) {
+            // Status check failing shouldn't block a local, unauthenticated
+            // instance — carry on and let individual calls report their own
+            // errors rather than showing a key prompt that may not apply.
+            console.error('Could not determine auth status', e);
+        }
+
+        // ?task=<id> opens an already-processed case directly. Without it the
+        // only route to the dashboard is uploading a scan, which is
+        // impractical from a phone — and a phone is the only place AR runs.
+        const requestedTask = new URLSearchParams(window.location.search).get('task');
+        if (requestedTask) {
+            uploadSection.style.display = 'none';
+            dashboardSection.style.display = 'grid';
+            if (window.initSliceViewer) initSliceViewer(requestedTask);
+            loadDashboard(requestedTask);
+        }
+    }
+
+    startApp();
 });

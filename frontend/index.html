@@ -226,6 +226,24 @@
             </div>
         </div>
 
+        <!-- API key prompt. Shown only when the server reports that auth is
+             enabled and this browser has no valid session yet. -->
+        <div id="auth-modal" role="dialog" aria-modal="true" aria-label="Access key required" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 2000; align-items: center; justify-content: center;">
+            <div style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 16px; padding: 2rem; max-width: 420px; width: 90%;">
+                <h3 style="margin-bottom: 0.75rem;">Access key required</h3>
+                <p class="text-muted" style="font-size: 0.85rem; line-height: 1.5; margin-bottom: 1rem;">
+                    This server is configured with an access key. Enter it to view scan data.
+                </p>
+                <form id="auth-form">
+                    <input type="password" id="auth-key-input" autocomplete="current-password"
+                           placeholder="Access key"
+                           style="width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.3); color: var(--text-color); font-family: inherit; font-size: 1rem;">
+                    <p id="auth-error" style="display: none; color: var(--danger); font-size: 0.85rem; margin-top: 0.5rem;"></p>
+                    <button type="submit" class="btn-primary" id="auth-submit" style="width: 100%; margin-top: 1rem;">Unlock</button>
+                </form>
+            </div>
+        </div>
+
         <!-- AR Preview Modal -->
         <div id="ar-modal" role="dialog" aria-modal="true" aria-label="AR model preview" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center;">
             <div style="position: relative; width: 90%; height: 90%;">

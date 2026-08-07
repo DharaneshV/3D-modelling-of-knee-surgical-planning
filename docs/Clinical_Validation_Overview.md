@@ -121,9 +121,11 @@ OAI-ZIB validation.
 
 ## 4. Known limitations
 
-- **No authentication.** Anyone who can reach the port can read every task's
-  data. Uploads are size-capped and path-traversal-hardened, but that is
-  containment, not access control.
+- **Single shared key, not per-user access control.** Setting
+  `KNEETWIN_API_KEY` gates every `/api/` route, but there are no accounts and
+  no per-task ownership — anyone holding the key sees every case. If the
+  variable is unset the API is open, with a startup warning. Adequate for a
+  local or demo instance; a hospital deployment needs real identity.
 - **Generic implants.** No manufacturer publishes component CAD, so the
   geometry is a parametric approximation. Sizes indicate that a component of
   those dimensions fits the anatomy — not a product selection.
@@ -136,8 +138,9 @@ OAI-ZIB validation.
 
 ## 5. Priorities for production
 
-1. Authentication and access control before any deployment beyond a trusted
-   local network.
+1. Real identity — per-user accounts and per-task access control. The shared
+   key covers "keep strangers out"; it does not answer who accessed which
+   patient's data, which an audit trail requires.
 2. Native DICOM ingestion with PACS integration and anonymisation.
 3. Distributed task queue (Celery/Redis) to decouple processing from the API.
 4. Expanded test coverage for edge-case anatomy — dysplasia, existing hardware.

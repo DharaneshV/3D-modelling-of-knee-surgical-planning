@@ -96,11 +96,41 @@ Segmentation accuracy can be re-validated against the OAI-ZIB test set with
 
 ## Security
 
-There is **no authentication of any kind**. Any caller who can reach the port
-can upload scans and read every task's meshes, reports and PDFs. Uploads are
-capped at 500MB and filenames/task IDs are validated against path traversal,
-but that is containment, not access control. Do not expose this to an untrusted
-network — or leave a tunnel running — with real patient data on it.
+### Access key
+
+Set `KNEETWIN_API_KEY` and every `/api/` route requires it:
+
+```bash
+# Windows (PowerShell)
+$env:KNEETWIN_API_KEY = "your-long-random-key"
+# macOS/Linux
+export KNEETWIN_API_KEY="your-long-random-key"
+
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+The browser prompts for it once and holds a session cookie; scripts send it as
+an `X-API-Key` header:
+
+```bash
+curl -H "X-API-Key: your-long-random-key" http://localhost:8000/api/manifest/<task_id>
+```
+
+**If the variable is unset, the API is unauthenticated** and the server prints a
+warning on startup. That keeps local development frictionless, but it means the
+protection is opt-in — set a key before binding to `0.0.0.0` or running a
+tunnel.
+
+### What this does and doesn't cover
+
+It stops an anonymous stranger who can reach the port from reading scans,
+meshes and reports. It is **not** multi-user access control: there are no
+accounts and no per-task ownership, so anyone holding the key sees everything.
+A hospital deployment needs real identity, which is separate work.
+
+Uploads are capped at 500MB, and filenames and task IDs are validated against
+path traversal — containment, not access control. The frontend itself stays
+public (it holds no patient data) so the key prompt has somewhere to render.
 
 ## Layout
 

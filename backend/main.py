@@ -1,10 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import uuid
 import json
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 import glob
 import numpy as np
@@ -15,9 +16,65 @@ from backend.pipeline_runner import (
 )
 from backend.modality_detector import detect_modality
 from backend.config import RESECTION_VERSION
+from backend import auth as auth_module
 import shutil
 
-app = FastAPI()
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # Auth is opt-in so an unconfigured local instance keeps working, which
+    # makes it easy to expose one by accident — hence a loud warning rather
+    # than silent permissiveness.
+    if not auth_module.auth_enabled():
+        print(
+            "\n"
+            "  WARNING: no KNEETWIN_API_KEY set — the API is UNAUTHENTICATED.\n"
+            "  Anyone who can reach this port can read every task's scans,\n"
+            "  meshes and reports. Fine on localhost; set a key before binding\n"
+            "  to 0.0.0.0 or exposing a tunnel.\n"
+        )
+    yield
+
+
+app = FastAPI(lifespan=_lifespan)
+
+# Gate /api/ behind a shared key when KNEETWIN_API_KEY is set. Registered
+# before CORS so an unauthenticated request is rejected as early as possible.
+app.middleware("http")(auth_module.auth_middleware)
+
+
+@app.post("/api/auth")
+async def authenticate(payload: dict):
+    """
+    Exchange the shared key for a session cookie.
+
+    The cookie exists because <img>, <model-viewer> and the PDF link cannot
+    send an X-API-Key header — see backend/auth.py.
+    """
+    if not auth_module.auth_enabled():
+        return {"authenticated": True, "auth_required": False}
+
+    submitted = (payload or {}).get("api_key", "")
+    if not auth_module._valid_key(submitted):
+        raise HTTPException(status_code=401, detail="Invalid key")
+
+    response = JSONResponse({"authenticated": True, "auth_required": True})
+    response.set_cookie(
+        auth_module.SESSION_COOKIE,
+        auth_module.issue_session_token(),
+        httponly=True,      # page scripts cannot read it back out
+        samesite="strict",  # not sent on cross-site requests
+        max_age=60 * 60 * 12,
+    )
+    return response
+
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    """Lets the frontend decide whether to prompt, without a failed call first."""
+    return {
+        "auth_required": auth_module.auth_enabled(),
+        "authenticated": auth_module.request_is_authenticated(request),
+    }
 
 # Same-origin only. The frontend is served by this app (see the StaticFiles
 # mount at the bottom of this file), so no page legitimately needs to call this
