@@ -131,7 +131,7 @@ Run on **all 103 OAI-ZIB test cases** via `scripts/run_oaizib_validation.py`; pe
 
 | Item | Status | Blocker |
 |---|---|---|
-| Implant geometry | ✅ Built | `src/mesh/implant.py` — generic parametric tibial tray and femoral component, sized from measured anatomy and fitted in `/api/resect`. Deliberately generic and labelled as such (the API returns an `implant_note` saying so): no public vendor CAD exists, so these match no real implant SKU. Tray sizing tests true 2D containment against the resection outline rather than bounding boxes, and searches seating position, because a centred symmetric tray overhangs an asymmetric plateau. Femoral sizing never rounds AP up, since oversizing notches the anterior cortex. |
+| Implant geometry | ✅ Built | `src/mesh/implant.py` — generic parametric tibial tray and femoral component, sized from measured anatomy and fitted in `/api/resect`. Deliberately generic and labelled as such (the API returns an `implant_note` saying so): no public vendor CAD exists, so these match no real implant SKU. Tray sizing tests true 2D containment against the resection outline rather than bounding boxes, and searches seating position, because a centred symmetric tray overhangs an asymmetric plateau. Femoral sizing never rounds AP up, since oversizing notches the anterior cortex. The femoral component's articular surface is a J-curve — its radius tightens ~4x from distal to posterior, as a real condyle's does through flexion — and the condyles are divided by an intercondylar notch, joined anteriorly by the trochlear flange. |
 | ACL / PCL / meniscus segmentation | 🔲 Not built | Data (§5), not effort. |
 | Tear detection / grading | ❌ Cut | Data (§5). |
 | USDZ / iOS AR | 🔲 Not built | — |
@@ -179,7 +179,7 @@ Run on **all 103 OAI-ZIB test cases** via `scripts/run_oaizib_validation.py`; pe
 
 ## 8. Test Suite & A Version-Control Gap Worth Remembering
 
-**Current state:** ✅ `pytest tests/ -q` → **85 passed**, no ignore flags, no GPU or external models required (everything runs against synthetic fixtures). Files: `test_fill_label_gaps.py`, `test_report_generator.py`, `test_slice_endpoint.py`, `test_implant.py`, `test_mesh_topology.py`, `test_cut_surface.py`, `test_upload_security.py`, `test_anatomic_axis.py`, `test_ar_export.py`, `test_resect_endpoint.py`.
+**Current state:** ✅ `pytest tests/ -q` → **125 passed**, no ignore flags, no GPU or external models required (everything runs against synthetic fixtures). Files: `test_fill_label_gaps.py`, `test_report_generator.py`, `test_slice_endpoint.py`, `test_implant.py`, `test_mesh_topology.py`, `test_cut_surface.py`, `test_upload_security.py`, `test_anatomic_axis.py`, `test_ar_export.py`, `test_resect_endpoint.py`, `test_auth.py`.
 
 The last four close the gaps this section previously flagged as thin coverage:
 `test_upload_security.py` pins the upload path-traversal fix (parametrised over

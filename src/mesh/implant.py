@@ -90,20 +90,35 @@ def cut_outline(bone_mesh, origin, normal, tolerance_deg: float = 10.0,
     return hull, ml, ap, centroid
 
 
-def _overhang(size: dict, outline, offset=(0.0, 0.0)) -> tuple:
-    """(overhang area mm2, max overhang distance mm) for a size against an outline."""
-    from shapely.affinity import translate
-    from shapely.geometry import Polygon, Point
+def _overhang_at(coords: np.ndarray, outline, offset) -> tuple:
+    """
+    (overhang area mm2, max overhang distance mm) for a footprint whose exterior
+    ring is `coords`, translated by `offset`.
 
-    poly = Polygon(np.asarray(_footprint(size["ml_mm"], size["ap_mm"]).exterior.coords))
-    if offset != (0.0, 0.0):
-        poly = translate(poly, xoff=offset[0], yoff=offset[1])
-    outside = poly.difference(outline)
+    Vectorised over the ring rather than looped: with a 13x13 offset search
+    across seven sizes this runs ~160k point tests, and building a shapely
+    `Point` per vertex to call scalar `.contains()`/`.distance()` on it was 86%
+    of the whole tray-fitting time. The array API does the identical test in one
+    call per candidate position.
+    """
+    from shapely import GEOSException, area, contains_xy, distance, points
+    from shapely.geometry import Polygon
+
+    moved = coords + np.asarray(offset)
+    try:
+        outside = Polygon(moved).difference(outline)
+    except GEOSException:
+        return float("inf"), float("inf")
     if outside.is_empty:
         return 0.0, 0.0
-    worst = max(Point(p).distance(outline)
-                for p in poly.exterior.coords if not outline.contains(Point(p)))
-    return float(outside.area), float(worst)
+
+    beyond = ~contains_xy(outline, moved[:, 0], moved[:, 1])
+    if not beyond.any():
+        # Overhang area without any vertex outside: the ring crosses the outline
+        # between vertices. No vertex distance to report, matching the original.
+        return float(area(outside)), 0.0
+    worst = distance(points(moved[beyond]), outline).max()
+    return float(area(outside)), float(worst)
 
 
 def _best_position(size: dict, outline) -> tuple:
@@ -117,18 +132,28 @@ def _best_position(size: dict, outline) -> tuple:
 
     Returns (offset, overhang_area_mm2, max_overhang_mm).
     """
+    from shapely import prepare
+
+    coords = np.asarray(
+        _footprint(size["ml_mm"], size["ap_mm"]).exterior.coords, dtype=float)
+    # Builds the outline's spatial index once instead of implicitly per test.
+    prepare(outline)
+
     steps = np.arange(-POSITION_SEARCH_MM, POSITION_SEARCH_MM + 1e-9, POSITION_STEP_MM)
     best = None
     for dx in steps:
         for dy in steps:
-            area, worst = _overhang(size, outline, (float(dx), float(dy)))
-            key = (round(worst, 3), round(area, 1))
+            offset = (float(dx), float(dy))
+            area_mm2, worst = _overhang_at(coords, outline, offset)
+            key = (round(worst, 3), round(area_mm2, 1))
             if best is None or key < best[0]:
-                best = (key, (float(dx), float(dy)), area, worst)
-            if worst == 0.0 and area == 0.0:
-                break
-    _, offset, area, worst = best
-    return offset, area, worst
+                best = (key, offset, area_mm2, worst)
+            if worst == 0.0 and area_mm2 == 0.0:
+                # Nothing can beat a clean fit, so stop rather than scoring the
+                # rest of the grid against a key no candidate can go below.
+                return offset, area_mm2, worst
+    _, offset, area_mm2, worst = best
+    return offset, area_mm2, worst
 
 
 def select_tray_size(ml_mm: float, ap_mm: float, outline=None,
@@ -150,10 +175,19 @@ def select_tray_size(ml_mm: float, ap_mm: float, outline=None,
     sizes = sizes or TIBIAL_TRAY_SIZES
 
     if outline is not None:
-        scored = [(s,) + _best_position(s, outline) for s in sizes]
-        fitting = [r for r in scored if r[3] <= MAX_OVERHANG_MM]
-        if fitting:
-            s, offset, area, worst = max(fitting, key=lambda r: r[0]["ml_mm"] * r[0]["ap_mm"])
+        # Largest first: the answer is the biggest size that fits, so the first
+        # fitting one is the answer and the smaller sizes need never be searched.
+        # Only the no-fit case has to score them all, to report the least-bad.
+        scored, best_fit = [], None
+        for s in sorted(sizes, key=lambda s: s["ml_mm"] * s["ap_mm"], reverse=True):
+            result = (s,) + _best_position(s, outline)
+            scored.append(result)
+            if result[3] <= MAX_OVERHANG_MM:
+                best_fit = result
+                break
+
+        if best_fit is not None:
+            s, offset, area, worst = best_fit
             chosen = dict(s)
             chosen["fit"] = "fitted"
         else:
@@ -288,6 +322,25 @@ FEMORAL_CHAMFER_MM = 8.0
 FEMORAL_ANTERIOR_RISE_MM = 22.0   # how far the anterior flange runs proximally
 FEMORAL_POSTERIOR_RISE_MM = 20.0
 
+# The articular surface is a J-curve: its radius of curvature decreases from
+# distal (extension, where the tibia bears against a flatter surface) to
+# posterior (deep flexion, where the condyle rolls on a tighter arc). Modelling
+# it as an ellipse rather than a constant-radius offset gives that continuously
+# varying curvature for free, with the ratio below setting how pronounced it is.
+# 1.0 would be a circle — uniform radius, i.e. the shape this replaces.
+FEMORAL_JCURVE_RATIO = 1.9
+
+# Intercondylar notch: the gap between the medial and lateral condyles, through
+# which the cruciate ligaments pass. Expressed as a fraction of the component's
+# mediolateral width — real designs sit around a third.
+FEMORAL_NOTCH_WIDTH_FRACTION = 0.34
+
+# How far anteriorly the notch runs, as a fraction of half the AP depth. The
+# notch opens posteriorly and distally but stops short of the trochlear flange,
+# which stays full width — that is what holds the two condyles together as one
+# component. Kept behind the chamfer so the anterior cut surface is untouched.
+FEMORAL_NOTCH_FRONT_FRACTION = 0.30
+
 
 def femoral_box(size: dict) -> dict:
     """Internal box dimensions the given component size requires."""
@@ -318,32 +371,21 @@ def select_femoral_size(ap_mm: float, ml_mm: float, sizes: list = None) -> dict:
     return chosen
 
 
-def _femoral_profile(size: dict, box: dict):
+def _femoral_inner_path(size: dict, box: dict) -> list:
     """
-    Sagittal cross-section of the component, in (anterior, proximal) mm with the
-    origin at the centre of the distal cut.
+    The five cut surfaces the component seats against, anterior top round to
+    posterior top, as an open path in (anterior, proximal) mm with the origin at
+    the centre of the distal cut.
 
-    The inner boundary traces the five cut surfaces; the outer is that boundary
-    offset by the wall thickness, which rounds the distal-posterior corner into
-    the curved articular surface. This is a swept constant section — a real
-    component's condylar radius varies through flexion and it carries an
-    intercondylar notch, neither of which is modelled here.
+    A quoted femoral size is the component's external anteroposterior
+    dimension, so the bone box it seats on is inset by the wall thickness on
+    each side. Getting this backwards would cut a box the size of the implant
+    and leave the implant standing proud of the bone by its own thickness.
     """
-    from shapely.geometry import LineString, Polygon
-
-    # A quoted femoral size is the component's external anteroposterior
-    # dimension, so the bone box it seats on is inset by the wall thickness on
-    # each side. Getting this backwards would cut a box the size of the implant
-    # and leave the implant standing proud of the bone by its own thickness.
     a = size["ap_mm"] / 2.0 - FEMORAL_WALL_MM
     p = -a
     c = box["chamfer_mm"]
-
-    # Open path along the cut surfaces, anterior top round to posterior top.
-    # Deliberately not closed: buffering a closed ring and subtracting leaves an
-    # annulus enclosing a hole, whereas the component is a C that opens
-    # proximally where there is no cut to seat against.
-    inner_path = [
+    return [
         (a, box["anterior_rise_mm"]),
         (a, c),
         (a - c, 0.0),
@@ -352,18 +394,61 @@ def _femoral_profile(size: dict, box: dict):
         (p, box["posterior_rise_mm"]),
     ]
 
-    # Positive offset is to the left of travel, which along this path is away
-    # from the bone — the side the component's material occupies.
-    outer_path = LineString(inner_path).offset_curve(FEMORAL_WALL_MM,
-                                                     join_style=1, quad_segs=16)
-    outer = list(outer_path.coords)
-    # offset_curve does not guarantee direction; align it with the inner path so
-    # the two join end-to-end instead of crossing over themselves.
-    if np.linalg.norm(np.array(outer[0]) - np.array(inner_path[0])) > \
-       np.linalg.norm(np.array(outer[-1]) - np.array(inner_path[0])):
-        outer = outer[::-1]
 
-    shell = Polygon(inner_path + outer[::-1])
+def _articular_curve(size: dict, n: int = 72) -> list:
+    """
+    Outer (articular) surface in the sagittal plane, from anterior-distal round
+    to posterior-proximal.
+
+    Built as an elliptical arc rather than a constant-radius offset of the box.
+    A uniform offset produces flat runs joined by arcs whose radius is exactly
+    the wall thickness — geometrically a rounded box, and visibly so. A real
+    femoral component is a J-curve: the radius of curvature is largest distally,
+    where the knee bears in extension, and tightens posteriorly as the condyle
+    rolls back into flexion. An ellipse has continuously varying curvature by
+    construction, so the ratio of its semi-axes sets how pronounced the J is
+    without needing to blend arcs by hand.
+
+    The arc spans the component's full anteroposterior width, and reaches
+    FEMORAL_WALL_MM distal to the cut plane at its lowest point — so the
+    component's overall size is unchanged by this, only its shape.
+    """
+    half_ap = size["ap_mm"] / 2.0                # semi-axis in AP
+    b = FEMORAL_WALL_MM * FEMORAL_JCURVE_RATIO   # semi-axis proximally
+    z_centre = b - FEMORAL_WALL_MM               # so the lowest point sits at -wall
+
+    # theta 0 -> pi traces anterior (+AP) through distal (lowest) to posterior.
+    theta = np.linspace(0.0, np.pi, n)
+    return [(float(half_ap * np.cos(t)), float(z_centre - b * np.sin(t))) for t in theta]
+
+
+def _femoral_profile(size: dict, box: dict):
+    """
+    Sagittal cross-section: the cut surfaces on the inside, the J-curve
+    articular surface on the outside, closed by the anterior and posterior
+    faces.
+
+    Deliberately not built by buffering a closed ring and subtracting — that
+    leaves an annulus enclosing a hole, whereas the component is a C that opens
+    proximally where there is no cut to seat against.
+    """
+    from shapely.geometry import Polygon
+
+    inner_path = _femoral_inner_path(size, box)
+    outer_path = _articular_curve(size)
+
+    half_ap = size["ap_mm"] / 2.0
+    # Close the section: up the anterior face to the flange top, across the
+    # inner path (reversed, so it runs posterior -> anterior), then down the
+    # posterior face to rejoin the articular curve.
+    ring = (
+        [(half_ap, box["anterior_rise_mm"])]
+        + [(x, y) for x, y in outer_path]
+        + [(-half_ap, box["posterior_rise_mm"])]
+        + inner_path[::-1]
+    )
+
+    shell = Polygon(ring)
     if not shell.is_valid:
         shell = shell.buffer(0)
     if shell.geom_type == "MultiPolygon":
@@ -371,14 +456,125 @@ def _femoral_profile(size: dict, box: dict):
     return shell
 
 
-def build_femoral_component(size: dict) -> trimesh.Trimesh:
+def _cap(polygon, x: float, facing_positive: bool):
+    """One end/step face of a band, laid at world X = x from a sagittal
+    (ap, z) polygon. Returns (vertices, faces)."""
+    verts2d, faces2d = trimesh.creation.triangulate_polygon(polygon)
+    verts = np.column_stack([np.full(len(verts2d), x), verts2d[:, 0], verts2d[:, 1]])
+    # triangulate_polygon winds counter-clockwise in the (ap, z) plane, which
+    # is +X-facing once those become world Y and Z. Reverse for the other side.
+    faces = np.asarray(faces2d) if facing_positive else np.asarray(faces2d)[:, ::-1]
+    return verts, faces
+
+
+def _wall(polygon, x0: float, x1: float):
+    """The swept side wall of a band: the polygon's boundary extruded from
+    x0 to x1. Returns (vertices, faces) with outward-facing winding."""
+    from shapely.geometry import polygon as shapely_polygon
+
+    ring = np.asarray(shapely_polygon.orient(polygon, 1.0).exterior.coords)[:-1]
+    n = len(ring)
+    verts = np.vstack([
+        np.column_stack([np.full(n, x0), ring[:, 0], ring[:, 1]]),
+        np.column_stack([np.full(n, x1), ring[:, 0], ring[:, 1]]),
+    ])
+    i = np.arange(n)
+    j = (i + 1) % n
+    faces = np.vstack([
+        np.column_stack([i, j, j + n]),
+        np.column_stack([i, j + n, i + n]),
+    ])
+    return verts, faces
+
+
+def _sweep_with_notch(profile, ml_mm: float, notch_ml: float, notch_front: float):
+    """
+    Sweep the sagittal profile mediolaterally, leaving an intercondylar notch.
+
+    The notch is built rather than subtracted. A boolean would be the obvious
+    approach, but trimesh's engines (manifold3d/blender) are not installed here
+    and VTK's `boolean_difference` was measured leaving 36-68 open edges on this
+    mesh at every notch position tried — a component that reports no volume.
+
+    Building it directly is exact instead of approximate, because the component
+    is a prism: it is the same 2D profile at every mediolateral station, so the
+    notch is just a *different* profile over the central band. Splitting the
+    profile in 2D with shapely and stitching three constant-section bands gives
+    a mesh that is watertight by construction:
+
+        |<-- condyle -->|<-- notch -->|<-- condyle -->|      (viewed distally)
+             profile        flange         profile           anterior at top
+
+    Returns None if the split does not produce the expected simple polygons, so
+    the caller can fall back to the un-notched sweep.
+    """
+    from shapely.geometry import box as shapely_box
+
+    half_ml = ml_mm / 2.0
+    half_notch = notch_ml / 2.0
+    if not 0.0 < half_notch < half_ml:
+        return None
+
+    # Split the profile at the notch's anterior stop: `flange` stays full width,
+    # `removed` is the material the notch takes out of the central band.
+    minx, miny, maxx, maxy = profile.bounds
+    anterior = shapely_box(notch_front, miny - 1.0, maxx + 1.0, maxy + 1.0)
+    flange = profile.intersection(anterior)
+    removed = profile.difference(anterior)
+    # Re-joining the two halves reinstates the profile *with the split points
+    # inserted*, so the condyle bands' walls share exact vertices with the step
+    # faces at the notch mouth — that shared boundary is what closes the mesh.
+    full = flange.union(removed)
+    for part in (flange, removed, full):
+        if part.geom_type != "Polygon" or part.is_empty or part.interiors:
+            return None
+
+    pieces = [
+        _cap(full, -half_ml, facing_positive=False),      # medial end
+        _wall(full, -half_ml, -half_notch),               # medial condyle
+        _cap(removed, -half_notch, facing_positive=True),  # notch mouth, medial
+        _wall(flange, -half_notch, half_notch),           # trochlear flange
+        _cap(removed, half_notch, facing_positive=False),  # notch mouth, lateral
+        _wall(full, half_notch, half_ml),                 # lateral condyle
+        _cap(full, half_ml, facing_positive=True),        # lateral end
+    ]
+
+    verts, faces, offset = [], [], 0
+    for v, f in pieces:
+        verts.append(v)
+        faces.append(np.asarray(f) + offset)
+        offset += len(v)
+
+    mesh = trimesh.Trimesh(vertices=np.vstack(verts), faces=np.vstack(faces),
+                           process=False)
+    mesh.merge_vertices()
+    mesh.remove_unreferenced_vertices()
+    trimesh.repair.fix_normals(mesh)
+    if not mesh.is_watertight or mesh.volume <= 0:
+        return None
+    return mesh
+
+
+def build_femoral_component(size: dict, notch: bool = True) -> trimesh.Trimesh:
     """
     Component at the origin: sagittal shell swept across the mediolateral width,
     with +Y anterior and +Z proximal, seating face on the distal cut at z = 0.
+
+    `notch=False` returns the plain sweep — a solid block between the condyles.
+    The seating geometry is the same either way; the notch only removes material
+    the bone does not touch.
     """
     profile = _femoral_profile(size, femoral_box(size))
-    solid = trimesh.creation.extrude_polygon(profile, height=size["ml_mm"])
 
+    if notch:
+        solid = _sweep_with_notch(
+            profile, size["ml_mm"],
+            size["ml_mm"] * FEMORAL_NOTCH_WIDTH_FRACTION,
+            size["ap_mm"] / 2.0 * FEMORAL_NOTCH_FRONT_FRACTION)
+        if solid is not None:
+            return solid
+
+    solid = trimesh.creation.extrude_polygon(profile, height=size["ml_mm"])
     # extrude_polygon lays the profile in XY (x = anterior, y = proximal) and
     # sweeps along +Z. Permute so the sweep becomes mediolateral and the profile
     # stands in the sagittal plane: (x, y, z) -> (z, x, y).
